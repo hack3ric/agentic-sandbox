@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock
 
-from agentic_vm import APP_NAME, AgenticVM, AgenticVMError, Paths
+from agentic_vm import APP_NAME, AgenticVM, AgenticVMError, DEFAULT_RUNTIME_SIZE, Paths
 
 
 def completed(stdout: str = "", stderr: str = "", returncode: int = 0):
@@ -85,6 +85,8 @@ class AgenticVMTests(unittest.TestCase):
                 app.identity_for().machine_name,
                 "--ephemeral=yes",
                 "--console=read-only",
+                "--runtime-size",
+                DEFAULT_RUNTIME_SIZE,
                 "--runtime-network=user",
                 "--runtime-tree",
                 f"{self.cwd.resolve()}:{self.cwd.resolve()}",

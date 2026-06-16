@@ -15,6 +15,7 @@ from typing import Sequence
 
 APP_NAME = "agentic-vm"
 DEFAULT_PACKAGES = "base,linux,openssh"
+DEFAULT_RUNTIME_SIZE = "32G"
 
 
 class AgenticVMError(RuntimeError):
@@ -105,6 +106,8 @@ class AgenticVM:
             identity.machine_name,
             "--ephemeral=yes",
             "--console=read-only",
+            "--runtime-size",
+            DEFAULT_RUNTIME_SIZE,
             "--runtime-network=user",
             "--runtime-tree",
             f"{identity.cwd}:{identity.cwd}",

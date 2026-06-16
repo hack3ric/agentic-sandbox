@@ -17,6 +17,8 @@ Run from any project directory:
 
 The current working directory is bind-mounted into the guest at the same absolute path via `mkosi --runtime-tree`.
 
+The VM disk is expanded at boot time with `mkosi --runtime-size 32G`, which increases usable space inside ephemeral VMs without increasing the stored size of the built base image.
+
 `ssh` enters the VM associated with the current directory via `mkosi ssh`.
 
 `stop` stops the transient user unit for the current directory.
