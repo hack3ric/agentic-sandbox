@@ -167,6 +167,43 @@ class AgenticVMTests(unittest.TestCase):
         )
         self.assertEqual(len(calls), 2)
 
+    def test_create_waits_for_machine_when_requested(self):
+        calls = []
+        ssh_probe_attempts = 0
+        sleeps = []
+
+        def runner(cmd, **kwargs):
+            nonlocal ssh_probe_attempts
+            calls.append((cmd, kwargs))
+            if cmd[:3] == ["systemctl", "--user", "is-active"]:
+                checks = len([call for call, _ in calls if call[:3] == cmd[:3]])
+                if checks == 1:
+                    return completed(stdout="inactive\n", returncode=3)
+                return completed(stdout="active\n")
+            if cmd[:5] == [
+                "mkosi",
+                "--directory",
+                str(self.paths.image_dir),
+                "--machine",
+                app.identity_for().machine_name,
+            ] and cmd[-2:] == ["--", "true"]:
+                ssh_probe_attempts += 1
+                if ssh_probe_attempts == 1:
+                    return completed(returncode=255)
+                return completed()
+            return completed()
+
+        app = AgenticVM(
+            self.paths,
+            self.cwd,
+            runner=runner,
+            sleeper=lambda seconds: sleeps.append(seconds),
+        )
+        app.create(wait=True)
+
+        self.assertEqual(sleeps, [1.0])
+        self.assertEqual(ssh_probe_attempts, 2)
+
     def test_run_creates_then_sshes(self):
         calls = []
 

@@ -105,7 +105,7 @@ class AgenticVM:
             state_file=self.paths.state_dir / f"{digest}.json",
         )
 
-    def create(self) -> None:
+    def create(self, wait: bool = False) -> None:
         identity = self.identity_for()
         self.ensure_directories()
         self.ensure_mkosi_workspace()
@@ -148,10 +148,11 @@ class AgenticVM:
         )
         self.write_state(identity)
         print(f"created {identity.unit_name}")
+        if wait:
+            self.wait_for_machine()
 
     def run_vm(self, extra_args: Sequence[str]) -> int:
-        self.create()
-        self.wait_for_machine()
+        self.create(wait=True)
         return self.ssh(extra_args)
 
     def ssh(self, extra_args: Sequence[str]) -> int:
@@ -391,9 +392,14 @@ class AgenticVM:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog=APP_NAME)
     subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser(
+    create_parser = subparsers.add_parser(
         "create",
         help="Build the shared image if needed and create the VM for the current directory",
+    )
+    create_parser.add_argument(
+        "--wait",
+        action="store_true",
+        help="Wait for the guest to become reachable before returning",
     )
     run_parser = subparsers.add_parser(
         "run",
@@ -421,7 +427,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     app = AgenticVM(Paths.detect(), Path.cwd())
     try:
         if args.command == "create":
-            app.create()
+            app.create(wait=args.wait)
             return 0
         if args.command == "run":
             return app.run_vm(args.ssh_args)
