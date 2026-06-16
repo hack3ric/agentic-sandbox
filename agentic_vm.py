@@ -11,10 +11,11 @@ import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from string import Template
 from typing import Sequence
 
 APP_NAME = "agentic-vm"
-DEFAULT_PACKAGES = "base,linux,openssh"
+DEFAULT_PACKAGES = ["base", "linux", "openssh"]
 DEFAULT_RUNTIME_SIZE = "32G"
 
 
@@ -24,15 +25,20 @@ class AgenticVMError(RuntimeError):
 
 @dataclass(frozen=True)
 class Paths:
+    repo_root: Path
+    template_dir: Path
     home: Path
     data_dir: Path
     state_dir: Path
     image_dir: Path
     config_file: Path
+    repart_dir: Path
+    root_partition_file: Path
     build_marker: Path
 
     @classmethod
     def detect(cls) -> "Paths":
+        repo_root = Path(__file__).resolve().parent
         home = Path(os.environ.get("HOME", "~")).expanduser().resolve()
         data_home = Path(
             os.environ.get("XDG_DATA_HOME", home / ".local" / "share")
@@ -44,11 +50,15 @@ class Paths:
         state_dir = state_home / APP_NAME
         image_dir = data_dir / "base-image"
         return cls(
+            repo_root=repo_root,
+            template_dir=repo_root / "mkosi",
             home=home,
             data_dir=data_dir,
             state_dir=state_dir,
             image_dir=image_dir,
             config_file=image_dir / "mkosi.conf",
+            repart_dir=image_dir / "mkosi.repart",
+            root_partition_file=image_dir / "mkosi.repart" / "10-root.conf",
             build_marker=image_dir / ".image-built.json",
         )
 
@@ -181,12 +191,30 @@ class AgenticVM:
     def ensure_directories(self) -> None:
         self.paths.image_dir.mkdir(parents=True, exist_ok=True)
         self.paths.state_dir.mkdir(parents=True, exist_ok=True)
+        self.paths.repart_dir.mkdir(parents=True, exist_ok=True)
 
     def ensure_mkosi_workspace(self, force: bool = False) -> None:
-        if force or not self.paths.config_file.exists():
-            self.paths.config_file.write_text(
-                self.default_mkosi_config(), encoding="utf-8"
-            )
+        for source in sorted(self.paths.template_dir.rglob("*")):
+            if source.is_dir():
+                continue
+            relative = source.relative_to(self.paths.template_dir)
+            if relative.suffix == ".in":
+                relative = relative.with_suffix("")
+            target = self.paths.image_dir / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            rendered = self.render_template(source)
+            if (
+                force
+                or not target.exists()
+                or target.read_text(encoding="utf-8") != rendered
+            ):
+                target.write_text(rendered, encoding="utf-8")
+
+    def render_template(self, source: Path) -> str:
+        template = source.read_text(encoding="utf-8")
+        return Template(template.replace("@PACKAGES@", "${PACKAGES}")).substitute(
+            PACKAGES=",".join(DEFAULT_PACKAGES)
+        )
 
     def ensure_ssh_credentials(self) -> None:
         key = self.paths.image_dir / "mkosi.key"
@@ -277,24 +305,6 @@ class AgenticVM:
     def run(self, command: Sequence[str], **kwargs):
         kwargs.setdefault("check", True)
         return self.runner(list(command), **kwargs)
-
-    @staticmethod
-    def default_mkosi_config() -> str:
-        return "\n".join(
-            [
-                "[Distribution]",
-                "Distribution=arch",
-                "",
-                "[Output]",
-                "Format=disk",
-                "",
-                "[Content]",
-                f"Packages={DEFAULT_PACKAGES}",
-                "Bootable=yes",
-                # "Autologin=yes",
-                "",
-            ]
-        )
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -2,6 +2,8 @@
 
 Small Python wrapper around `mkosi` and transient user services.
 
+The mkosi template lives in [`mkosi/`](./mkosi) in this repo and is synced into the shared workspace under `~/.local/share/agentic-vm/base-image`.
+
 ## Commands
 
 Run from any project directory:
@@ -18,6 +20,8 @@ Run from any project directory:
 The current working directory is bind-mounted into the guest at the same absolute path via `mkosi --runtime-tree`.
 
 The VM disk is expanded at boot time with `mkosi --runtime-size 32G`, which increases usable space inside ephemeral VMs without increasing the stored size of the built base image.
+
+The shared disk image defaults to a btrfs root filesystem via the repo-managed [`mkosi/mkosi.repart/10-root.conf`](./mkosi/mkosi.repart/10-root.conf) override.
 
 `ssh` enters the VM associated with the current directory via `mkosi ssh`.
 

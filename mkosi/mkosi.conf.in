@@ -1,0 +1,9 @@
+[Distribution]
+Distribution=arch
+
+[Output]
+Format=disk
+
+[Content]
+Packages=@PACKAGES@
+Bootable=yes

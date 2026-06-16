@@ -6,7 +6,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock
 
-from agentic_vm import APP_NAME, AgenticVM, AgenticVMError, DEFAULT_RUNTIME_SIZE, Paths
+from agentic_vm import (
+    APP_NAME,
+    DEFAULT_PACKAGES,
+    DEFAULT_RUNTIME_SIZE,
+    AgenticVM,
+    AgenticVMError,
+    Paths,
+)
 
 
 def completed(stdout: str = "", stderr: str = "", returncode: int = 0):
@@ -29,12 +36,47 @@ class AgenticVMTests(unittest.TestCase):
         cwd.mkdir()
         self.cwd = cwd
         self.paths = Paths(
+            repo_root=root / "repo",
+            template_dir=root / "repo" / "mkosi",
             home=home,
             data_dir=home / ".local" / "share" / APP_NAME,
             state_dir=home / ".local" / "state" / APP_NAME,
             image_dir=home / ".local" / "share" / APP_NAME / "base-image",
-            config_file=home / ".local" / "share" / APP_NAME / "base-image" / "mkosi.conf",
-            build_marker=home / ".local" / "share" / APP_NAME / "base-image" / ".image-built.json",
+            config_file=home
+            / ".local"
+            / "share"
+            / APP_NAME
+            / "base-image"
+            / "mkosi.conf",
+            repart_dir=home
+            / ".local"
+            / "share"
+            / APP_NAME
+            / "base-image"
+            / "mkosi.repart",
+            root_partition_file=home
+            / ".local"
+            / "share"
+            / APP_NAME
+            / "base-image"
+            / "mkosi.repart"
+            / "10-root.conf",
+            build_marker=home
+            / ".local"
+            / "share"
+            / APP_NAME
+            / "base-image"
+            / ".image-built.json",
+        )
+        self.paths.template_dir.mkdir(parents=True)
+        (self.paths.template_dir / "mkosi.conf.in").write_text(
+            "[Distribution]\nDistribution=arch\n\n[Output]\nFormat=disk\n\n[Content]\nPackages=@PACKAGES@\nBootable=yes\n",
+            encoding="utf-8",
+        )
+        (self.paths.template_dir / "mkosi.repart").mkdir()
+        (self.paths.template_dir / "mkosi.repart" / "10-root.conf").write_text(
+            "[Partition]\nType=root\nFormat=btrfs\nCopyFiles=/\nMinimize=guess\n",
+            encoding="utf-8",
         )
 
     def tearDown(self):
@@ -61,9 +103,17 @@ class AgenticVMTests(unittest.TestCase):
         app.start()
 
         self.assertTrue(self.paths.config_file.exists())
-        self.assertEqual(calls[0][0], ["mkosi", "--directory", str(self.paths.image_dir), "genkey"])
-        self.assertEqual(calls[1][0], ["systemctl", "--user", "is-active", app.identity_for().unit_name])
-        self.assertEqual(calls[2][0], ["mkosi", "--directory", str(self.paths.image_dir), "build"])
+        self.assertTrue(self.paths.root_partition_file.exists())
+        self.assertEqual(
+            calls[0][0], ["mkosi", "--directory", str(self.paths.image_dir), "genkey"]
+        )
+        self.assertEqual(
+            calls[1][0],
+            ["systemctl", "--user", "is-active", app.identity_for().unit_name],
+        )
+        self.assertEqual(
+            calls[2][0], ["mkosi", "--directory", str(self.paths.image_dir), "build"]
+        )
         self.assertEqual(
             calls[3][0],
             [
@@ -108,8 +158,13 @@ class AgenticVMTests(unittest.TestCase):
 
         app = AgenticVM(self.paths, self.cwd, runner=runner)
         app.start()
-        self.assertEqual(calls[0][0], ["mkosi", "--directory", str(self.paths.image_dir), "genkey"])
-        self.assertEqual(calls[1][0], ["systemctl", "--user", "is-active", app.identity_for().unit_name])
+        self.assertEqual(
+            calls[0][0], ["mkosi", "--directory", str(self.paths.image_dir), "genkey"]
+        )
+        self.assertEqual(
+            calls[1][0],
+            ["systemctl", "--user", "is-active", app.identity_for().unit_name],
+        )
         self.assertEqual(len(calls), 2)
 
     def test_ssh_requires_active_unit(self):
@@ -153,7 +208,12 @@ class AgenticVMTests(unittest.TestCase):
 
         def runner(cmd, **kwargs):
             calls.append((cmd, kwargs))
-            if cmd[:4] == ["systemctl", "--user", "status", app.identity_for().unit_name]:
+            if cmd[:4] == [
+                "systemctl",
+                "--user",
+                "status",
+                app.identity_for().unit_name,
+            ]:
                 return completed(stdout="Loaded: loaded\n")
             if cmd[:3] == ["systemctl", "--user", "is-failed"]:
                 return completed(stdout="inactive\n", returncode=1)
@@ -164,8 +224,13 @@ class AgenticVMTests(unittest.TestCase):
         app.write_state(app.identity_for())
         app.stop()
         self.assertFalse(app.identity_for().state_file.exists())
-        self.assertEqual(calls[1][0], ["systemctl", "--user", "stop", app.identity_for().unit_name])
-        self.assertEqual(calls[2][0], ["systemctl", "--user", "is-failed", app.identity_for().unit_name])
+        self.assertEqual(
+            calls[1][0], ["systemctl", "--user", "stop", app.identity_for().unit_name]
+        )
+        self.assertEqual(
+            calls[2][0],
+            ["systemctl", "--user", "is-failed", app.identity_for().unit_name],
+        )
         self.assertEqual(len(calls), 3)
 
     def test_stop_resets_failed_unit(self):
@@ -173,7 +238,12 @@ class AgenticVMTests(unittest.TestCase):
 
         def runner(cmd, **kwargs):
             calls.append((cmd, kwargs))
-            if cmd[:4] == ["systemctl", "--user", "status", app.identity_for().unit_name]:
+            if cmd[:4] == [
+                "systemctl",
+                "--user",
+                "status",
+                app.identity_for().unit_name,
+            ]:
                 return completed(stdout="Loaded: loaded\n")
             if cmd[:3] == ["systemctl", "--user", "is-failed"]:
                 return completed(stdout="failed\n")
@@ -184,9 +254,17 @@ class AgenticVMTests(unittest.TestCase):
         app.write_state(app.identity_for())
         app.stop()
         self.assertFalse(app.identity_for().state_file.exists())
-        self.assertEqual(calls[1][0], ["systemctl", "--user", "stop", app.identity_for().unit_name])
-        self.assertEqual(calls[2][0], ["systemctl", "--user", "is-failed", app.identity_for().unit_name])
-        self.assertEqual(calls[3][0], ["systemctl", "--user", "reset-failed", app.identity_for().unit_name])
+        self.assertEqual(
+            calls[1][0], ["systemctl", "--user", "stop", app.identity_for().unit_name]
+        )
+        self.assertEqual(
+            calls[2][0],
+            ["systemctl", "--user", "is-failed", app.identity_for().unit_name],
+        )
+        self.assertEqual(
+            calls[3][0],
+            ["systemctl", "--user", "reset-failed", app.identity_for().unit_name],
+        )
 
     def test_rebuild_refuses_when_managed_unit_is_active(self):
         app = AgenticVM(self.paths, self.cwd, runner=Mock())
@@ -213,8 +291,13 @@ class AgenticVMTests(unittest.TestCase):
 
         app = AgenticVM(self.paths, self.cwd, runner=runner)
         app.rebuild()
-        self.assertEqual(calls[0][0], ["mkosi", "--directory", str(self.paths.image_dir), "genkey"])
-        self.assertEqual(calls[1][0], ["mkosi", "--directory", str(self.paths.image_dir), "-f", "build"])
+        self.assertEqual(
+            calls[0][0], ["mkosi", "--directory", str(self.paths.image_dir), "genkey"]
+        )
+        self.assertEqual(
+            calls[1][0],
+            ["mkosi", "--directory", str(self.paths.image_dir), "-f", "build"],
+        )
 
     def test_rebuild_rewrites_mkosi_config(self):
         def runner(cmd, **kwargs):
@@ -230,8 +313,27 @@ class AgenticVMTests(unittest.TestCase):
 
         self.assertEqual(
             self.paths.config_file.read_text(encoding="utf-8"),
-            app.default_mkosi_config(),
+            app.render_template(self.paths.template_dir / "mkosi.conf.in"),
         )
+        self.assertEqual(
+            self.paths.root_partition_file.read_text(encoding="utf-8"),
+            app.render_template(
+                self.paths.template_dir / "mkosi.repart" / "10-root.conf"
+            ),
+        )
+
+    def test_template_root_partition_uses_btrfs(self):
+        app = AgenticVM(self.paths, self.cwd, runner=Mock())
+        app.ensure_mkosi_workspace()
+        self.assertIn(
+            "Format=btrfs",
+            self.paths.root_partition_file.read_text(encoding="utf-8"),
+        )
+
+    def test_mkosi_config_renders_package_array(self):
+        app = AgenticVM(self.paths, self.cwd, runner=Mock())
+        rendered = app.render_template(self.paths.template_dir / "mkosi.conf.in")
+        self.assertIn(f"Packages={','.join(DEFAULT_PACKAGES)}", rendered)
 
 
 if __name__ == "__main__":
