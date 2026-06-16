@@ -9,13 +9,16 @@ The mkosi template lives in [`mkosi/`](./mkosi) in this repo and is synced into 
 Run from any project directory:
 
 ```bash
-./agentic-vm start
+./agentic-vm create
+./agentic-vm run
 ./agentic-vm ssh
 ./agentic-vm stop
 ./agentic-vm rebuild
 ```
 
-`start` creates a shared Arch Linux image once under `~/.local/share/agentic-vm/base-image`, then starts a VM for the current exact working directory through `systemd-run --user`.
+`create` creates a shared Arch Linux image once under `~/.local/share/agentic-vm/base-image`, then starts a VM for the current exact working directory through `systemd-run --user`.
+
+`run` creates the VM for the current directory if needed, then enters it via `mkosi ssh`.
 
 The current working directory is bind-mounted into the guest at the same absolute path via `mkosi --runtime-tree`.
 

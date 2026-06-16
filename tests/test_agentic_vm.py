@@ -90,7 +90,7 @@ class AgenticVMTests(unittest.TestCase):
         self.assertEqual(first.unit_name, second.unit_name)
         self.assertEqual(first.machine_name, second.machine_name)
 
-    def test_start_builds_then_runs_transient_unit(self):
+    def test_create_builds_then_runs_transient_unit(self):
         calls = []
 
         def runner(cmd, **kwargs):
@@ -100,7 +100,7 @@ class AgenticVMTests(unittest.TestCase):
             return completed()
 
         app = AgenticVM(self.paths, self.cwd, runner=runner)
-        app.start()
+        app.create()
 
         self.assertTrue(self.paths.config_file.exists())
         self.assertTrue(self.paths.root_partition_file.exists())
@@ -147,7 +147,7 @@ class AgenticVMTests(unittest.TestCase):
         state = json.loads(app.identity_for().state_file.read_text(encoding="utf-8"))
         self.assertEqual(state["cwd"], str(self.cwd.resolve()))
 
-    def test_start_is_idempotent_when_active(self):
+    def test_create_is_idempotent_when_active(self):
         calls = []
 
         def runner(cmd, **kwargs):
@@ -157,7 +157,7 @@ class AgenticVMTests(unittest.TestCase):
             return completed()
 
         app = AgenticVM(self.paths, self.cwd, runner=runner)
-        app.start()
+        app.create()
         self.assertEqual(
             calls[0][0], ["mkosi", "--directory", str(self.paths.image_dir), "genkey"]
         )
@@ -166,6 +166,66 @@ class AgenticVMTests(unittest.TestCase):
             ["systemctl", "--user", "is-active", app.identity_for().unit_name],
         )
         self.assertEqual(len(calls), 2)
+
+    def test_run_creates_then_sshes(self):
+        calls = []
+
+        def runner(cmd, **kwargs):
+            calls.append((cmd, kwargs))
+            if cmd[:3] == ["systemctl", "--user", "is-active"]:
+                if len([call for call, _ in calls if call[:3] == cmd[:3]]) == 1:
+                    return completed(stdout="inactive\n", returncode=3)
+                return completed(stdout="active\n")
+            return completed()
+
+        app = AgenticVM(self.paths, self.cwd, runner=runner)
+        result = app.run_vm(["--", "uname", "-a"])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            calls[3][0],
+            [
+                "systemd-run",
+                "--user",
+                "--unit",
+                app.identity_for().unit_name,
+                "--description",
+                f"{APP_NAME} VM for {self.cwd.resolve()}",
+                "--collect",
+                "--service-type=exec",
+                "--working-directory",
+                str(self.paths.image_dir),
+                "mkosi",
+                "--directory",
+                str(self.paths.image_dir),
+                "--vmm=qemu",
+                "--machine",
+                app.identity_for().machine_name,
+                "--ephemeral=yes",
+                "--console=read-only",
+                "--runtime-size",
+                DEFAULT_RUNTIME_SIZE,
+                "--runtime-network=user",
+                "--runtime-tree",
+                f"{self.cwd.resolve()}:{self.cwd.resolve()}",
+                "--register=no",
+                "vm",
+            ],
+        )
+        self.assertEqual(
+            calls[-1][0],
+            [
+                "mkosi",
+                "--directory",
+                str(self.paths.image_dir),
+                "--machine",
+                app.identity_for().machine_name,
+                "ssh",
+                "--",
+                "uname",
+                "-a",
+            ],
+        )
 
     def test_ssh_requires_active_unit(self):
         def runner(cmd, **kwargs):

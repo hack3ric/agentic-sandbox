@@ -99,7 +99,7 @@ class AgenticVM:
             state_file=self.paths.state_dir / f"{digest}.json",
         )
 
-    def start(self) -> None:
+    def create(self) -> None:
         identity = self.identity_for()
         self.ensure_directories()
         self.ensure_mkosi_workspace()
@@ -141,7 +141,11 @@ class AgenticVM:
             ]
         )
         self.write_state(identity)
-        print(f"started {identity.unit_name}")
+        print(f"created {identity.unit_name}")
+
+    def run_vm(self, extra_args: Sequence[str]) -> int:
+        self.create()
+        return self.ssh(extra_args)
 
     def ssh(self, extra_args: Sequence[str]) -> int:
         identity = self.identity_for()
@@ -311,9 +315,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog=APP_NAME)
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser(
-        "start",
-        help="Build the shared image if needed and start the VM for the current directory",
+        "create",
+        help="Build the shared image if needed and create the VM for the current directory",
     )
+    run_parser = subparsers.add_parser(
+        "run",
+        help="Create the VM for the current directory if needed, then connect via ssh",
+    )
+    run_parser.add_argument("ssh_args", nargs=argparse.REMAINDER)
     ssh_parser = subparsers.add_parser(
         "ssh", help="Connect to the VM for the current directory"
     )
@@ -327,9 +336,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     app = AgenticVM(Paths.detect(), Path.cwd())
     try:
-        if args.command == "start":
-            app.start()
+        if args.command == "create":
+            app.create()
             return 0
+        if args.command == "run":
+            return app.run_vm(args.ssh_args)
         if args.command == "ssh":
             return app.ssh(args.ssh_args)
         if args.command == "stop":
