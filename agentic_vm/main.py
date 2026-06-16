@@ -13,7 +13,9 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from string import Template
-from typing import Sequence
+from typing import Sequence, TextIO
+
+from .spinner import DEFAULT_SPINNER_FRAME_INTERVAL_SECONDS, Spinner
 
 APP_NAME = "agentic-vm"
 DEFAULT_PACKAGES = ["base", "linux", "openssh"]
@@ -43,7 +45,7 @@ class Paths:
 
     @classmethod
     def detect(cls) -> "Paths":
-        repo_root = Path(__file__).resolve().parent
+        repo_root = Path(__file__).resolve().parent.parent
         home = Path(os.environ.get("HOME", "~")).expanduser().resolve()
         data_home = Path(
             os.environ.get("XDG_DATA_HOME", home / ".local" / "share")
@@ -88,11 +90,27 @@ class VMState:
 
 
 class AgenticVM:
-    def __init__(self, paths: Paths, cwd: Path, runner=None, sleeper=None):
+    def __init__(
+        self,
+        paths: Paths,
+        cwd: Path,
+        runner=None,
+        sleeper=None,
+        status_stream: TextIO | None = None,
+        spinner_enabled: bool | None = None,
+        spinner_frame_interval_seconds: float = DEFAULT_SPINNER_FRAME_INTERVAL_SECONDS,
+    ):
         self.paths = paths
         self.cwd = cwd.resolve()
         self.runner = runner or subprocess.run
         self.sleeper = sleeper or time.sleep
+        self.status_stream = status_stream or sys.stderr
+        self.spinner_enabled = (
+            spinner_enabled
+            if spinner_enabled is not None
+            else hasattr(self.status_stream, "isatty") and self.status_stream.isatty()
+        )
+        self.spinner_frame_interval_seconds = spinner_frame_interval_seconds
 
     def identity_for(self, cwd: Path | None = None) -> VMIdentity:
         resolved = (cwd or self.cwd).resolve()
@@ -130,7 +148,6 @@ class AgenticVM:
             "--register=no",
             "vm",
         )
-        # print(" ".join(command))
         self.run(
             [
                 "systemd-run",
@@ -255,8 +272,10 @@ class AgenticVM:
     ) -> None:
         identity = self.identity_for()
         deadline = time.monotonic() + timeout_seconds
+        spinner = self.make_spinner(f"Waiting for {identity.machine_name} to boot")
         while True:
             if not self.is_unit_active(identity.unit_name):
+                spinner.finish()
                 raise AgenticVMError(f"{identity.unit_name} is not active")
             result = self.run(
                 self.mkosi_cmd("--machine", identity.machine_name, "ssh", "--", "true"),
@@ -265,8 +284,10 @@ class AgenticVM:
                 text=True,
             )
             if result.returncode == 0:
+                spinner.finish()
                 return
             if time.monotonic() >= deadline:
+                spinner.finish()
                 raise AgenticVMError(
                     f"timed out waiting for {identity.machine_name} to become reachable"
                 )
@@ -293,13 +314,17 @@ class AgenticVM:
         poll_interval_seconds: float,
     ) -> bool:
         remaining = max(timeout_seconds, 0.0)
+        spinner = self.make_spinner(f"Waiting for {identity.machine_name} to power off")
         while True:
             if not self.is_unit_active(identity.unit_name):
+                spinner.finish()
                 return True
             if remaining <= 0:
+                spinner.finish()
                 return False
-            self.sleeper(poll_interval_seconds)
-            remaining -= poll_interval_seconds
+            sleep_duration = min(poll_interval_seconds, remaining)
+            self.sleeper(sleep_duration)
+            remaining -= sleep_duration
 
     def force_stop_unit(self, identity: VMIdentity) -> None:
         stop_result = self.run(
@@ -388,6 +413,16 @@ class AgenticVM:
         kwargs.setdefault("check", True)
         return self.runner(list(command), **kwargs)
 
+    def make_spinner(self, message: str) -> Spinner:
+        spinner = Spinner(
+            self.status_stream,
+            message,
+            self.spinner_frame_interval_seconds,
+        )
+        if self.spinner_enabled:
+            spinner.start()
+        return spinner
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog=APP_NAME)
@@ -443,7 +478,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"{APP_NAME}: {exc}", file=sys.stderr)
         return 1
     except subprocess.CalledProcessError as exc:
-        # print(f"{APP_NAME}: command failed: {' '.join(exc.cmd)}", file=sys.stderr)
         return exc.returncode or 1
     return 1
 

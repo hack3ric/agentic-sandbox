@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import io
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock
 
-from agentic_vm import (
+from agentic_vm.main import (
     APP_NAME,
     DEFAULT_PACKAGES,
     DEFAULT_RUNTIME_SIZE,
@@ -171,6 +173,7 @@ class AgenticVMTests(unittest.TestCase):
         calls = []
         ssh_probe_attempts = 0
         sleeps = []
+        status = io.StringIO()
 
         def runner(cmd, **kwargs):
             nonlocal ssh_probe_attempts
@@ -188,6 +191,7 @@ class AgenticVMTests(unittest.TestCase):
                 app.identity_for().machine_name,
             ] and cmd[-2:] == ["--", "true"]:
                 ssh_probe_attempts += 1
+                time.sleep(0.005)
                 if ssh_probe_attempts == 1:
                     return completed(returncode=255)
                 return completed()
@@ -198,11 +202,17 @@ class AgenticVMTests(unittest.TestCase):
             self.cwd,
             runner=runner,
             sleeper=lambda seconds: sleeps.append(seconds),
+            status_stream=status,
+            spinner_enabled=True,
+            spinner_frame_interval_seconds=0.001,
         )
         app.create(wait=True)
 
         self.assertEqual(sleeps, [1.0])
         self.assertEqual(ssh_probe_attempts, 2)
+        self.assertIn("⠋ Waiting for", status.getvalue())
+        self.assertIn("⠙ Waiting for", status.getvalue())
+        self.assertIn("⠹ Waiting for", status.getvalue())
 
     def test_run_creates_then_sshes(self):
         calls = []
@@ -393,6 +403,7 @@ class AgenticVMTests(unittest.TestCase):
     def test_stop_forces_after_timeout(self):
         calls = []
         sleeps = []
+        status = io.StringIO()
 
         def runner(cmd, **kwargs):
             calls.append((cmd, kwargs))
@@ -404,6 +415,7 @@ class AgenticVMTests(unittest.TestCase):
             ]:
                 return completed(stdout="Loaded: loaded\n")
             if cmd[:3] == ["systemctl", "--user", "is-active"]:
+                time.sleep(0.005)
                 return completed(stdout="active\n")
             if cmd[:3] == ["systemctl", "--user", "is-failed"]:
                 return completed(stdout="inactive\n", returncode=1)
@@ -414,6 +426,9 @@ class AgenticVMTests(unittest.TestCase):
             self.cwd,
             runner=runner,
             sleeper=lambda seconds: sleeps.append(seconds),
+            status_stream=status,
+            spinner_enabled=True,
+            spinner_frame_interval_seconds=0.001,
         )
         app.ensure_directories()
         app.write_state(app.identity_for())
@@ -441,6 +456,9 @@ class AgenticVMTests(unittest.TestCase):
             ["systemctl", "--user", "is-failed", app.identity_for().unit_name],
         )
         self.assertEqual(sleeps, [1.0, 1.0])
+        self.assertIn("⠋ Waiting for", status.getvalue())
+        self.assertIn("⠙ Waiting for", status.getvalue())
+        self.assertIn("⠹ Waiting for", status.getvalue())
 
     def test_stop_force_skips_graceful_shutdown(self):
         calls = []
