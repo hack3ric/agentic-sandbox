@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +18,8 @@ from typing import Sequence
 APP_NAME = "agentic-vm"
 DEFAULT_PACKAGES = ["base", "linux", "openssh"]
 DEFAULT_RUNTIME_SIZE = "32G"
+DEFAULT_BOOT_TIMEOUT_SECONDS = 60.0
+DEFAULT_BOOT_POLL_INTERVAL_SECONDS = 1.0
 
 
 class AgenticVMError(RuntimeError):
@@ -83,10 +86,11 @@ class VMState:
 
 
 class AgenticVM:
-    def __init__(self, paths: Paths, cwd: Path, runner=None):
+    def __init__(self, paths: Paths, cwd: Path, runner=None, sleeper=None):
         self.paths = paths
         self.cwd = cwd.resolve()
         self.runner = runner or subprocess.run
+        self.sleeper = sleeper or time.sleep
 
     def identity_for(self, cwd: Path | None = None) -> VMIdentity:
         resolved = (cwd or self.cwd).resolve()
@@ -145,6 +149,7 @@ class AgenticVM:
 
     def run_vm(self, extra_args: Sequence[str]) -> int:
         self.create()
+        self.wait_for_machine()
         return self.ssh(extra_args)
 
     def ssh(self, extra_args: Sequence[str]) -> int:
@@ -232,6 +237,30 @@ class AgenticVM:
             return
         self.run(self.mkosi_cmd("build"))
         self.write_build_marker()
+
+    def wait_for_machine(
+        self,
+        timeout_seconds: float = DEFAULT_BOOT_TIMEOUT_SECONDS,
+        poll_interval_seconds: float = DEFAULT_BOOT_POLL_INTERVAL_SECONDS,
+    ) -> None:
+        identity = self.identity_for()
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            if not self.is_unit_active(identity.unit_name):
+                raise AgenticVMError(f"{identity.unit_name} is not active")
+            result = self.run(
+                self.mkosi_cmd("--machine", identity.machine_name, "ssh", "--", "true"),
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                return
+            if time.monotonic() >= deadline:
+                raise AgenticVMError(
+                    f"timed out waiting for {identity.machine_name} to become reachable"
+                )
+            self.sleeper(poll_interval_seconds)
 
     def active_managed_units(self) -> list[str]:
         active: list[str] = []

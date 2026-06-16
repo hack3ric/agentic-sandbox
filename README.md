@@ -18,7 +18,7 @@ Run from any project directory:
 
 `create` creates a shared Arch Linux image once under `~/.local/share/agentic-vm/base-image`, then starts a VM for the current exact working directory through `systemd-run --user`.
 
-`run` creates the VM for the current directory if needed, then enters it via `mkosi ssh`.
+`run` creates the VM for the current directory if needed, waits for the guest to become reachable, then enters it via `mkosi ssh`.
 
 The current working directory is bind-mounted into the guest at the same absolute path via `mkosi --runtime-tree`.
 

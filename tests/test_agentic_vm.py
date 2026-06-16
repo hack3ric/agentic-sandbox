@@ -173,12 +173,21 @@ class AgenticVMTests(unittest.TestCase):
         def runner(cmd, **kwargs):
             calls.append((cmd, kwargs))
             if cmd[:3] == ["systemctl", "--user", "is-active"]:
-                if len([call for call, _ in calls if call[:3] == cmd[:3]]) == 1:
+                checks = len([call for call, _ in calls if call[:3] == cmd[:3]])
+                if checks == 1:
                     return completed(stdout="inactive\n", returncode=3)
                 return completed(stdout="active\n")
+            if cmd[:5] == [
+                "mkosi",
+                "--directory",
+                str(self.paths.image_dir),
+                "--machine",
+                app.identity_for().machine_name,
+            ] and cmd[-2:] == ["--", "true"]:
+                return completed()
             return completed()
 
-        app = AgenticVM(self.paths, self.cwd, runner=runner)
+        app = AgenticVM(self.paths, self.cwd, runner=runner, sleeper=lambda _: None)
         result = app.run_vm(["--", "uname", "-a"])
 
         self.assertEqual(result, 0)
@@ -226,6 +235,44 @@ class AgenticVMTests(unittest.TestCase):
                 "-a",
             ],
         )
+
+    def test_run_waits_for_machine_to_become_reachable(self):
+        calls = []
+        ssh_probe_attempts = 0
+        sleeps = []
+
+        def runner(cmd, **kwargs):
+            nonlocal ssh_probe_attempts
+            calls.append((cmd, kwargs))
+            if cmd[:3] == ["systemctl", "--user", "is-active"]:
+                checks = len([call for call, _ in calls if call[:3] == cmd[:3]])
+                if checks == 1:
+                    return completed(stdout="inactive\n", returncode=3)
+                return completed(stdout="active\n")
+            if cmd[:5] == [
+                "mkosi",
+                "--directory",
+                str(self.paths.image_dir),
+                "--machine",
+                app.identity_for().machine_name,
+            ] and cmd[-2:] == ["--", "true"]:
+                ssh_probe_attempts += 1
+                if ssh_probe_attempts == 1:
+                    return completed(returncode=255)
+                return completed()
+            return completed()
+
+        app = AgenticVM(
+            self.paths,
+            self.cwd,
+            runner=runner,
+            sleeper=lambda seconds: sleeps.append(seconds),
+        )
+        result = app.run_vm([])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(sleeps, [1.0])
+        self.assertEqual(ssh_probe_attempts, 2)
 
     def test_ssh_requires_active_unit(self):
         def runner(cmd, **kwargs):
