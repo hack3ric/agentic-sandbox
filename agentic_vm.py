@@ -150,10 +150,14 @@ class AgenticVM:
         identity = self.identity_for()
         unit_exists = self.unit_known(identity.unit_name)
         if unit_exists:
-            self.run(["systemctl", "--user", "stop", identity.unit_name], check=False)
-            self.run(
-                ["systemctl", "--user", "reset-failed", identity.unit_name], check=False
+            stop_result = self.run(
+                ["systemctl", "--user", "stop", identity.unit_name], check=False
             )
+            if stop_result.returncode != 0 or self.is_unit_failed(identity.unit_name):
+                self.run(
+                    ["systemctl", "--user", "reset-failed", identity.unit_name],
+                    check=False,
+                )
         if identity.state_file.exists():
             identity.state_file.unlink()
         print(
@@ -235,6 +239,15 @@ class AgenticVM:
             text=True,
         )
         return result.returncode == 0 and (result.stdout or "").strip() == "active"
+
+    def is_unit_failed(self, unit_name: str) -> bool:
+        result = self.run(
+            ["systemctl", "--user", "is-failed", unit_name],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        return result.returncode == 0 and (result.stdout or "").strip() == "failed"
 
     def write_state(self, identity: VMIdentity) -> None:
         state = VMState(

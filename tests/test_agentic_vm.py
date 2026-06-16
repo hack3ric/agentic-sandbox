@@ -148,13 +148,15 @@ class AgenticVMTests(unittest.TestCase):
             ],
         )
 
-    def test_stop_removes_metadata_and_resets_unit(self):
+    def test_stop_removes_metadata_without_reset_on_clean_stop(self):
         calls = []
 
         def runner(cmd, **kwargs):
             calls.append((cmd, kwargs))
             if cmd[:4] == ["systemctl", "--user", "status", app.identity_for().unit_name]:
                 return completed(stdout="Loaded: loaded\n")
+            if cmd[:3] == ["systemctl", "--user", "is-failed"]:
+                return completed(stdout="inactive\n", returncode=1)
             return completed()
 
         app = AgenticVM(self.paths, self.cwd, runner=runner)
@@ -163,7 +165,28 @@ class AgenticVMTests(unittest.TestCase):
         app.stop()
         self.assertFalse(app.identity_for().state_file.exists())
         self.assertEqual(calls[1][0], ["systemctl", "--user", "stop", app.identity_for().unit_name])
-        self.assertEqual(calls[2][0], ["systemctl", "--user", "reset-failed", app.identity_for().unit_name])
+        self.assertEqual(calls[2][0], ["systemctl", "--user", "is-failed", app.identity_for().unit_name])
+        self.assertEqual(len(calls), 3)
+
+    def test_stop_resets_failed_unit(self):
+        calls = []
+
+        def runner(cmd, **kwargs):
+            calls.append((cmd, kwargs))
+            if cmd[:4] == ["systemctl", "--user", "status", app.identity_for().unit_name]:
+                return completed(stdout="Loaded: loaded\n")
+            if cmd[:3] == ["systemctl", "--user", "is-failed"]:
+                return completed(stdout="failed\n")
+            return completed()
+
+        app = AgenticVM(self.paths, self.cwd, runner=runner)
+        app.ensure_directories()
+        app.write_state(app.identity_for())
+        app.stop()
+        self.assertFalse(app.identity_for().state_file.exists())
+        self.assertEqual(calls[1][0], ["systemctl", "--user", "stop", app.identity_for().unit_name])
+        self.assertEqual(calls[2][0], ["systemctl", "--user", "is-failed", app.identity_for().unit_name])
+        self.assertEqual(calls[3][0], ["systemctl", "--user", "reset-failed", app.identity_for().unit_name])
 
     def test_rebuild_refuses_when_managed_unit_is_active(self):
         app = AgenticVM(self.paths, self.cwd, runner=Mock())
