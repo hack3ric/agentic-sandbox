@@ -310,7 +310,102 @@ class AgenticVMTests(unittest.TestCase):
             ],
         )
 
-    def test_stop_removes_metadata_without_reset_on_clean_stop(self):
+    def test_stop_requests_graceful_shutdown_and_removes_metadata(self):
+        calls = []
+        is_active_checks = 0
+
+        def runner(cmd, **kwargs):
+            nonlocal is_active_checks
+            calls.append((cmd, kwargs))
+            if cmd[:4] == [
+                "systemctl",
+                "--user",
+                "status",
+                app.identity_for().unit_name,
+            ]:
+                return completed(stdout="Loaded: loaded\n")
+            if cmd[:3] == ["systemctl", "--user", "is-active"]:
+                is_active_checks += 1
+                if is_active_checks == 1:
+                    return completed(stdout="active\n")
+                return completed(stdout="inactive\n", returncode=3)
+            if cmd[:3] == ["systemctl", "--user", "is-failed"]:
+                return completed(stdout="inactive\n", returncode=1)
+            return completed()
+
+        app = AgenticVM(self.paths, self.cwd, runner=runner, sleeper=lambda _: None)
+        app.ensure_directories()
+        app.write_state(app.identity_for())
+        app.stop()
+        self.assertFalse(app.identity_for().state_file.exists())
+        self.assertEqual(
+            calls[1][0],
+            [
+                "mkosi",
+                "--directory",
+                str(self.paths.image_dir),
+                "--machine",
+                app.identity_for().machine_name,
+                "ssh",
+                "--",
+                "poweroff",
+            ],
+        )
+        self.assertEqual(len(calls), 4)
+
+    def test_stop_forces_after_timeout(self):
+        calls = []
+        sleeps = []
+
+        def runner(cmd, **kwargs):
+            calls.append((cmd, kwargs))
+            if cmd[:4] == [
+                "systemctl",
+                "--user",
+                "status",
+                app.identity_for().unit_name,
+            ]:
+                return completed(stdout="Loaded: loaded\n")
+            if cmd[:3] == ["systemctl", "--user", "is-active"]:
+                return completed(stdout="active\n")
+            if cmd[:3] == ["systemctl", "--user", "is-failed"]:
+                return completed(stdout="inactive\n", returncode=1)
+            return completed()
+
+        app = AgenticVM(
+            self.paths,
+            self.cwd,
+            runner=runner,
+            sleeper=lambda seconds: sleeps.append(seconds),
+        )
+        app.ensure_directories()
+        app.write_state(app.identity_for())
+        app.stop(timeout_seconds=2.0, poll_interval_seconds=1.0)
+        self.assertFalse(app.identity_for().state_file.exists())
+        self.assertEqual(
+            calls[1][0],
+            [
+                "mkosi",
+                "--directory",
+                str(self.paths.image_dir),
+                "--machine",
+                app.identity_for().machine_name,
+                "ssh",
+                "--",
+                "poweroff",
+            ],
+        )
+        self.assertEqual(
+            calls[-2][0],
+            ["systemctl", "--user", "stop", app.identity_for().unit_name],
+        )
+        self.assertEqual(
+            calls[-1][0],
+            ["systemctl", "--user", "is-failed", app.identity_for().unit_name],
+        )
+        self.assertEqual(sleeps, [1.0, 1.0])
+
+    def test_stop_force_skips_graceful_shutdown(self):
         calls = []
 
         def runner(cmd, **kwargs):
@@ -329,16 +424,10 @@ class AgenticVMTests(unittest.TestCase):
         app = AgenticVM(self.paths, self.cwd, runner=runner)
         app.ensure_directories()
         app.write_state(app.identity_for())
-        app.stop()
-        self.assertFalse(app.identity_for().state_file.exists())
+        app.stop(force=True)
         self.assertEqual(
             calls[1][0], ["systemctl", "--user", "stop", app.identity_for().unit_name]
         )
-        self.assertEqual(
-            calls[2][0],
-            ["systemctl", "--user", "is-failed", app.identity_for().unit_name],
-        )
-        self.assertEqual(len(calls), 3)
 
     def test_stop_resets_failed_unit(self):
         calls = []
@@ -352,24 +441,28 @@ class AgenticVMTests(unittest.TestCase):
                 app.identity_for().unit_name,
             ]:
                 return completed(stdout="Loaded: loaded\n")
+            if cmd[:3] == ["systemctl", "--user", "is-active"]:
+                return completed(stdout="active\n")
             if cmd[:3] == ["systemctl", "--user", "is-failed"]:
                 return completed(stdout="failed\n")
             return completed()
 
-        app = AgenticVM(self.paths, self.cwd, runner=runner)
+        app = AgenticVM(
+            self.paths,
+            self.cwd,
+            runner=runner,
+            sleeper=lambda _: None,
+        )
         app.ensure_directories()
         app.write_state(app.identity_for())
-        app.stop()
+        app.stop(timeout_seconds=0.0, poll_interval_seconds=0.0)
         self.assertFalse(app.identity_for().state_file.exists())
         self.assertEqual(
-            calls[1][0], ["systemctl", "--user", "stop", app.identity_for().unit_name]
-        )
-        self.assertEqual(
-            calls[2][0],
+            calls[-2][0],
             ["systemctl", "--user", "is-failed", app.identity_for().unit_name],
         )
         self.assertEqual(
-            calls[3][0],
+            calls[-1][0],
             ["systemctl", "--user", "reset-failed", app.identity_for().unit_name],
         )
 

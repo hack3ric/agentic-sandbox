@@ -28,7 +28,7 @@ The shared disk image defaults to a btrfs root filesystem via the repo-managed [
 
 `ssh` enters the VM associated with the current directory via `mkosi ssh`.
 
-`stop` stops the transient user unit for the current directory.
+`stop` first asks the guest to power off cleanly, then force-stops the transient user unit if shutdown does not complete in time. Use `./agentic-vm stop --force` to skip the graceful shutdown attempt.
 
 `rebuild` forces a rebuild of the shared image and refuses to run while any managed VM is active.
 

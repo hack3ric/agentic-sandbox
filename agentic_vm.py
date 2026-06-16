@@ -20,6 +20,8 @@ DEFAULT_PACKAGES = ["base", "linux", "openssh"]
 DEFAULT_RUNTIME_SIZE = "32G"
 DEFAULT_BOOT_TIMEOUT_SECONDS = 60.0
 DEFAULT_BOOT_POLL_INTERVAL_SECONDS = 1.0
+DEFAULT_STOP_TIMEOUT_SECONDS = 30.0
+DEFAULT_STOP_POLL_INTERVAL_SECONDS = 1.0
 
 
 class AgenticVMError(RuntimeError):
@@ -165,18 +167,25 @@ class AgenticVM:
             command.extend(["--", *forwarded])
         return self.run(command).returncode
 
-    def stop(self) -> None:
+    def stop(
+        self,
+        force: bool = False,
+        timeout_seconds: float = DEFAULT_STOP_TIMEOUT_SECONDS,
+        poll_interval_seconds: float = DEFAULT_STOP_POLL_INTERVAL_SECONDS,
+    ) -> None:
         identity = self.identity_for()
         unit_exists = self.unit_known(identity.unit_name)
         if unit_exists:
-            stop_result = self.run(
-                ["systemctl", "--user", "stop", identity.unit_name], check=False
-            )
-            if stop_result.returncode != 0 or self.is_unit_failed(identity.unit_name):
-                self.run(
-                    ["systemctl", "--user", "reset-failed", identity.unit_name],
-                    check=False,
-                )
+            if not force:
+                self.request_graceful_stop(identity)
+                if not self.wait_for_unit_inactive(
+                    identity,
+                    timeout_seconds=timeout_seconds,
+                    poll_interval_seconds=poll_interval_seconds,
+                ):
+                    self.force_stop_unit(identity)
+            else:
+                self.force_stop_unit(identity)
         if identity.state_file.exists():
             identity.state_file.unlink()
         print(
@@ -261,6 +270,45 @@ class AgenticVM:
                     f"timed out waiting for {identity.machine_name} to become reachable"
                 )
             self.sleeper(poll_interval_seconds)
+
+    def request_graceful_stop(self, identity: VMIdentity) -> None:
+        self.run(
+            self.mkosi_cmd(
+                "--machine",
+                identity.machine_name,
+                "ssh",
+                "--",
+                "poweroff",
+            ),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    def wait_for_unit_inactive(
+        self,
+        identity: VMIdentity,
+        timeout_seconds: float,
+        poll_interval_seconds: float,
+    ) -> bool:
+        remaining = max(timeout_seconds, 0.0)
+        while True:
+            if not self.is_unit_active(identity.unit_name):
+                return True
+            if remaining <= 0:
+                return False
+            self.sleeper(poll_interval_seconds)
+            remaining -= poll_interval_seconds
+
+    def force_stop_unit(self, identity: VMIdentity) -> None:
+        stop_result = self.run(
+            ["systemctl", "--user", "stop", identity.unit_name], check=False
+        )
+        if stop_result.returncode != 0 or self.is_unit_failed(identity.unit_name):
+            self.run(
+                ["systemctl", "--user", "reset-failed", identity.unit_name],
+                check=False,
+            )
 
     def active_managed_units(self) -> list[str]:
         active: list[str] = []
@@ -356,7 +404,14 @@ def build_parser() -> argparse.ArgumentParser:
         "ssh", help="Connect to the VM for the current directory"
     )
     ssh_parser.add_argument("ssh_args", nargs=argparse.REMAINDER)
-    subparsers.add_parser("stop", help="Stop the VM for the current directory")
+    stop_parser = subparsers.add_parser(
+        "stop", help="Gracefully stop the VM for the current directory"
+    )
+    stop_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force-stop the transient unit without waiting for an in-guest shutdown",
+    )
     subparsers.add_parser("rebuild", help="Rebuild the shared mkosi image")
     return parser
 
@@ -373,7 +428,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "ssh":
             return app.ssh(args.ssh_args)
         if args.command == "stop":
-            app.stop()
+            app.stop(force=args.force)
             return 0
         if args.command == "rebuild":
             app.rebuild()
@@ -382,7 +437,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"{APP_NAME}: {exc}", file=sys.stderr)
         return 1
     except subprocess.CalledProcessError as exc:
-        print(f"{APP_NAME}: command failed: {' '.join(exc.cmd)}", file=sys.stderr)
+        # print(f"{APP_NAME}: command failed: {' '.join(exc.cmd)}", file=sys.stderr)
         return exc.returncode or 1
     return 1
 
