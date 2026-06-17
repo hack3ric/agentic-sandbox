@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agentic_sandbox.main import AgenticVMError, Paths
+from agentic_sandbox.main import AgenticSandboxError, Paths
 from agentic_sandbox.mkosi_backend import MkosiBackend
 
 
@@ -58,7 +58,7 @@ class WorkspaceTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            backend = MkosiBackend(paths, error_type=AgenticVMError)
+            backend = MkosiBackend(paths, error_type=AgenticSandboxError)
             with patch("agentic_sandbox.mkosi_backend.HOST_PACMAN_MIRRORLIST", host_mirrorlist):
                 backend.ensure_mkosi_workspace()
 
@@ -122,7 +122,7 @@ class WorkspaceTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            backend = MkosiBackend(paths, error_type=AgenticVMError)
+            backend = MkosiBackend(paths, error_type=AgenticSandboxError)
             with patch("agentic_sandbox.mkosi_backend.HOST_PACMAN_MIRRORLIST", host_mirrorlist):
                 backend.ensure_mkosi_workspace()
 
@@ -137,11 +137,11 @@ class WorkspaceTests(unittest.TestCase):
             (paths.template_dir / "mkosi.conf.in").write_text(
                 "[Content]\nPackages=@PACKAGES@\n", encoding="utf-8"
             )
-            backend = MkosiBackend(paths, error_type=AgenticVMError)
+            backend = MkosiBackend(paths, error_type=AgenticSandboxError)
             missing = root / "missing-mirrorlist"
 
             with patch("agentic_sandbox.mkosi_backend.HOST_PACMAN_MIRRORLIST", missing):
-                with self.assertRaises(AgenticVMError):
+                with self.assertRaises(AgenticSandboxError):
                     backend.ensure_mkosi_workspace()
 
 

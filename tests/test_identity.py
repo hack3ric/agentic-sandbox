@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agentic_sandbox.main import AgenticVM, MAX_MACHINE_NAME_LENGTH, Paths
+from agentic_sandbox.main import AgenticSandbox, MAX_MACHINE_NAME_LENGTH, Paths
 
 
 class IdentityTests(unittest.TestCase):
@@ -42,12 +42,12 @@ class IdentityTests(unittest.TestCase):
             cwd = root / "Project Name.with-symbols"
             cwd.mkdir()
 
-            app = AgenticVM(paths, cwd, backend=object())
+            app = AgenticSandbox(paths, cwd, backend=object())
             identity = app.identity_for()
             digest = hashlib.sha256(str(cwd.resolve()).encode("utf-8")).hexdigest()[:12]
             encoded_path = app.encode_path_for_name(cwd.resolve())
 
-            self.assertEqual(identity.vm_id, digest)
+            self.assertEqual(identity.sandbox_id, digest)
             self.assertIn(encoded_path[:20], identity.machine_name)
             self.assertTrue(identity.machine_name.endswith(f"-{digest}"))
             self.assertEqual(identity.unit_name, f"{identity.machine_name}.service")
@@ -59,7 +59,7 @@ class IdentityTests(unittest.TestCase):
             cwd = root / ("very-" * 20 + "long")
             cwd.mkdir()
 
-            app = AgenticVM(paths, cwd, backend=object())
+            app = AgenticSandbox(paths, cwd, backend=object())
             identity = app.identity_for()
 
             self.assertLessEqual(len(identity.machine_name), MAX_MACHINE_NAME_LENGTH)

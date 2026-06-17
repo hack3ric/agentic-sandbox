@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agentic_sandbox.main import AgenticVM, AgenticVMError, Paths
+from agentic_sandbox.main import AgenticSandbox, AgenticSandboxError, Paths
 from agentic_sandbox.podman_backend import PodmanBackend
 
 
@@ -53,7 +53,7 @@ class PodmanBackendTests(unittest.TestCase):
                 return Result(stdout="false\n")
             return Result()
 
-        return PodmanBackend(paths, runner=runner, error_type=AgenticVMError)
+        return PodmanBackend(paths, runner=runner, error_type=AgenticSandboxError)
 
     def test_create_builds_creates_and_starts_only_when_waiting(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -63,7 +63,7 @@ class PodmanBackendTests(unittest.TestCase):
             cwd.mkdir()
             commands = []
             backend = self.make_backend(paths, commands)
-            app = AgenticVM(paths, cwd, backend=backend)
+            app = AgenticSandbox(paths, cwd, backend=backend)
             identity = app.identity_for()
 
             backend.ensure_workspace = lambda force=False: None
@@ -105,8 +105,8 @@ class PodmanBackendTests(unittest.TestCase):
                 commands.append(command)
                 return Result()
 
-            backend = PodmanBackend(paths, runner=runner, error_type=AgenticVMError)
-            app = AgenticVM(paths, cwd, backend=backend)
+            backend = PodmanBackend(paths, runner=runner, error_type=AgenticSandboxError)
+            app = AgenticSandbox(paths, cwd, backend=backend)
             app.prune_stale_state = lambda identity: None
             backend.is_running = lambda identity: True
 
@@ -136,8 +136,8 @@ class PodmanBackendTests(unittest.TestCase):
                 commands.append(command)
                 return Result()
 
-            backend = PodmanBackend(paths, runner=runner, error_type=AgenticVMError)
-            app = AgenticVM(paths, cwd, backend=backend)
+            backend = PodmanBackend(paths, runner=runner, error_type=AgenticSandboxError)
+            app = AgenticSandbox(paths, cwd, backend=backend)
             app.prune_stale_state = lambda identity: None
             backend.is_running = lambda identity: True
             backend.should_allocate_tty = lambda: False
@@ -168,8 +168,8 @@ class PodmanBackendTests(unittest.TestCase):
                     return Result(0)
                 return Result()
 
-            backend = PodmanBackend(paths, runner=runner, error_type=AgenticVMError)
-            identity = AgenticVM(paths, cwd, backend=backend).identity_for()
+            backend = PodmanBackend(paths, runner=runner, error_type=AgenticSandboxError)
+            identity = AgenticSandbox(paths, cwd, backend=backend).identity_for()
 
             backend.stop(
                 identity, force=False, timeout_seconds=7.9, poll_interval_seconds=1.0
@@ -197,13 +197,13 @@ class PodmanBackendTests(unittest.TestCase):
             other = root / "other"
             other.mkdir()
             podman_backend = PodmanBackend(paths, runner=lambda command, **kwargs: None)
-            app = AgenticVM(paths, cwd, backend=podman_backend)
+            app = AgenticSandbox(paths, cwd, backend=podman_backend)
             podman_identity = app.identity_for(other)
             podman_identity.state_file.write_text(
                 json.dumps(
                     {
                         "cwd": str(other),
-                        "vm_id": podman_identity.vm_id,
+                        "sandbox_id": podman_identity.sandbox_id,
                         "unit_name": podman_identity.unit_name,
                         "machine_name": podman_identity.machine_name,
                         "image_dir": str(paths.podman_image_dir),
@@ -215,14 +215,14 @@ class PodmanBackendTests(unittest.TestCase):
                 encoding="utf-8",
             )
             (
-                paths.state_dir / f"{app.identity_for(root / 'mkosi').vm_id}.json"
+                paths.state_dir / f"{app.identity_for(root / 'mkosi').sandbox_id}.json"
             ).write_text(
                 json.dumps({"backend": "mkosi"}) + "\n",
                 encoding="utf-8",
             )
             podman_backend.is_running = lambda identity: True
 
-            with self.assertRaises(AgenticVMError):
+            with self.assertRaises(AgenticSandboxError):
                 app.rebuild()
 
     def test_mount_args_include_workspace_and_existing_optional_mounts(self) -> None:
@@ -266,7 +266,7 @@ class PodmanBackendTests(unittest.TestCase):
                 "Server = https://example.invalid/$repo/os/$arch\n", encoding="utf-8"
             )
 
-            backend = PodmanBackend(paths, error_type=AgenticVMError)
+            backend = PodmanBackend(paths, error_type=AgenticSandboxError)
             with patch(
                 "agentic_sandbox.podman_backend.HOST_PACMAN_MIRRORLIST", host_mirrorlist
             ):

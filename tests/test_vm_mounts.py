@@ -5,11 +5,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agentic_sandbox.main import AgenticVM, Paths
+from agentic_sandbox.main import AgenticSandbox, Paths
 from agentic_sandbox.mkosi_backend import GUEST_WORK_MOUNT, MkosiBackend
 
 
-class VMMountTests(unittest.TestCase):
+class SandboxMountTests(unittest.TestCase):
     def make_paths(self, root: Path) -> Paths:
         repo_root = root / "repo"
         template_dir = repo_root / "mkosi"
@@ -59,7 +59,7 @@ class VMMountTests(unittest.TestCase):
                 return Result()
 
             backend = MkosiBackend(paths, runner=runner)
-            app = AgenticVM(paths, cwd, backend=backend)
+            app = AgenticSandbox(paths, cwd, backend=backend)
             app.ensure_directories = lambda: None
             app.prune_stale_state = lambda identity: None
             app.write_state = lambda identity: None
@@ -109,7 +109,7 @@ class VMMountTests(unittest.TestCase):
                 return Result()
 
             backend = MkosiBackend(paths, runner=runner)
-            app = AgenticVM(paths, cwd, backend=backend)
+            app = AgenticSandbox(paths, cwd, backend=backend)
             app.prune_stale_state = lambda identity: None
             backend.is_running = lambda identity: True
 
@@ -143,7 +143,7 @@ class VMMountTests(unittest.TestCase):
                 return Result()
 
             backend = MkosiBackend(paths, runner=runner)
-            app = AgenticVM(paths, cwd, backend=backend)
+            app = AgenticSandbox(paths, cwd, backend=backend)
             app.prune_stale_state = lambda identity: None
             backend.is_running = lambda identity: True
             backend.should_allocate_ssh_tty = lambda: False
@@ -176,7 +176,7 @@ class VMMountTests(unittest.TestCase):
                 return Result()
 
             backend = MkosiBackend(paths, runner=runner)
-            app = AgenticVM(paths, cwd, backend=backend)
+            app = AgenticSandbox(paths, cwd, backend=backend)
             app.prune_stale_state = lambda identity: None
             backend.is_running = lambda identity: True
             backend.should_allocate_ssh_tty = lambda: True

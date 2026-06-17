@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agentic_sandbox.main import AgenticVM, Paths
+from agentic_sandbox.main import AgenticSandbox, Paths
 
 
 class StopTests(unittest.TestCase):
@@ -43,7 +43,7 @@ class StopTests(unittest.TestCase):
             json.dumps(
                 {
                     "cwd": str(cwd),
-                    "vm_id": name,
+                    "sandbox_id": name,
                     "unit_name": f"agentic-sandbox-{name}.service",
                     "machine_name": f"agentic-sandbox-{name}",
                     "image_dir": str(paths.image_dir),
@@ -69,7 +69,7 @@ class StopTests(unittest.TestCase):
             json.dumps(
                 {
                     "cwd": str(cwd),
-                    "vm_id": name,
+                    "sandbox_id": name,
                     "unit_name": f"agentic-sandbox-{name}.service",
                     "machine_name": f"agentic-sandbox-{name}",
                     "image_dir": str(image_dir),
@@ -126,11 +126,11 @@ class StopTests(unittest.TestCase):
                 def is_known(self, identity):
                     return True
 
-            app = AgenticVM(paths, cwd, backend=FakeBackend())
+            app = AgenticSandbox(paths, cwd, backend=FakeBackend())
 
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
-                app.stop(all_vms=True)
+                app.stop(all_sandboxes=True)
 
             self.assertEqual(
                 stop_calls,
@@ -180,14 +180,17 @@ class StopTests(unittest.TestCase):
                 def is_known(self, identity):
                     return False
 
-            app = AgenticVM(paths, cwd, backend=FakeBackend())
+            app = AgenticSandbox(paths, cwd, backend=FakeBackend())
 
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
-                app.stop(all_vms=True)
+                app.stop(all_sandboxes=True)
 
             self.assertFalse(stale_state.exists())
-            self.assertEqual(output.getvalue().splitlines(), ["no managed VMs were running"])
+            self.assertEqual(
+                output.getvalue().splitlines(),
+                ["no managed sandboxes were running"],
+            )
 
     def test_create_delegates_to_backend_and_writes_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -218,7 +221,7 @@ class StopTests(unittest.TestCase):
                 def is_known(self, identity):
                     return False
 
-            app = AgenticVM(paths, cwd, backend=FakeBackend())
+            app = AgenticSandbox(paths, cwd, backend=FakeBackend())
 
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
@@ -270,10 +273,10 @@ class StopTests(unittest.TestCase):
                 def is_known(self, identity):
                     return True
 
-            app = AgenticVM(paths, cwd, backend=FakeBackend())
+            app = AgenticSandbox(paths, cwd, backend=FakeBackend())
 
             with contextlib.redirect_stdout(io.StringIO()):
-                app.stop(all_vms=True)
+                app.stop(all_sandboxes=True)
 
             self.assertEqual(stop_calls, ["agentic-sandbox-podman.service"])
             self.assertTrue(mkosi_state.exists())
@@ -310,7 +313,7 @@ class StopTests(unittest.TestCase):
                 def is_known(self, identity):
                     return True
 
-            app = AgenticVM(paths, cwd, backend=FakeBackend())
+            app = AgenticSandbox(paths, cwd, backend=FakeBackend())
             identity = app.identity_for()
             output = io.StringIO()
 
@@ -357,7 +360,7 @@ class StopTests(unittest.TestCase):
                 def is_known(self, identity):
                     return True
 
-            app = AgenticVM(paths, cwd, backend=FakeBackend())
+            app = AgenticSandbox(paths, cwd, backend=FakeBackend())
             identity = app.identity_for()
             output = io.StringIO()
 

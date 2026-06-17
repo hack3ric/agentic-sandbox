@@ -24,7 +24,7 @@ from .mkosi_backend import MkosiBackend
 from .podman_backend import PodmanBackend
 
 
-class AgenticVMError(RuntimeError):
+class AgenticSandboxError(RuntimeError):
     pass
 
 
@@ -73,18 +73,18 @@ class Paths:
 
 
 @dataclass(frozen=True)
-class VMIdentity:
+class SandboxIdentity:
     cwd: Path
-    vm_id: str
+    sandbox_id: str
     unit_name: str
     machine_name: str
     state_file: Path
 
 
 @dataclass(frozen=True)
-class VMState:
+class SandboxState:
     cwd: str
-    vm_id: str
+    sandbox_id: str
     unit_name: str
     machine_name: str
     image_dir: str
@@ -92,7 +92,11 @@ class VMState:
     created_at: str
 
 
-class AgenticVM:
+# Compatibility alias for older callers and tests that still use the previous name.
+AgenticVMError = AgenticSandboxError
+
+
+class AgenticSandbox:
     def __init__(
         self,
         paths: Paths,
@@ -114,11 +118,11 @@ class AgenticVM:
             status_stream=status_stream,
             spinner_enabled=spinner_enabled,
             spinner_frame_interval_seconds=spinner_frame_interval_seconds,
-            error_type=AgenticVMError,
+            error_type=AgenticSandboxError,
         )
         self.backend_name = getattr(self.backend, "name", "mkosi")
 
-    def identity_for(self, cwd: Path | None = None) -> VMIdentity:
+    def identity_for(self, cwd: Path | None = None) -> SandboxIdentity:
         resolved = (cwd or self.cwd).resolve()
         digest = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()[:12]
         machine_name = self.machine_name_for(resolved, digest)
@@ -127,9 +131,9 @@ class AgenticVM:
             if self.backend_name == "mkosi"
             else f"{self.backend_name}-{digest}.json"
         )
-        return VMIdentity(
+        return SandboxIdentity(
             cwd=resolved,
-            vm_id=digest,
+            sandbox_id=digest,
             unit_name=f"{machine_name}.service",
             machine_name=machine_name,
             state_file=self.paths.state_dir / state_name,
@@ -173,7 +177,7 @@ class AgenticVM:
         self.write_state(identity)
         print(f"created {self.display_name(identity)}")
 
-    def run_vm(self, extra_args: Sequence[str]) -> int:
+    def run_sandbox(self, extra_args: Sequence[str]) -> int:
         self.create(wait=True)
         return self.ssh(extra_args)
 
@@ -184,12 +188,12 @@ class AgenticVM:
 
     def stop(
         self,
-        all_vms: bool = False,
+        all_sandboxes: bool = False,
         force: bool = False,
         timeout_seconds: float = DEFAULT_STOP_TIMEOUT_SECONDS,
         poll_interval_seconds: float = DEFAULT_STOP_POLL_INTERVAL_SECONDS,
     ) -> None:
-        if all_vms:
+        if all_sandboxes:
             self.stop_all(
                 force=force,
                 timeout_seconds=timeout_seconds,
@@ -230,11 +234,11 @@ class AgenticVM:
                 else f"{self.display_name(identity)} was not running"
             )
         if not stopped_any:
-            print("no managed VMs were running")
+            print("no managed sandboxes were running")
 
     def stop_identity(
         self,
-        identity: VMIdentity,
+        identity: SandboxIdentity,
         force: bool,
         timeout_seconds: float,
         poll_interval_seconds: float,
@@ -253,7 +257,9 @@ class AgenticVM:
         active = self.active_managed_units()
         if active:
             joined = ", ".join(active)
-            raise AgenticVMError(f"refusing rebuild while VMs are active: {joined}")
+            raise AgenticSandboxError(
+                f"refusing rebuild while sandboxes are active: {joined}"
+            )
         self.backend.rebuild()
         print("rebuilt shared image")
 
@@ -278,8 +284,8 @@ class AgenticVM:
                 state_file.unlink(missing_ok=True)
         return active
 
-    def managed_identities(self) -> list[VMIdentity]:
-        identities: list[VMIdentity] = []
+    def managed_identities(self) -> list[SandboxIdentity]:
+        identities: list[SandboxIdentity] = []
         self.paths.state_dir.mkdir(parents=True, exist_ok=True)
         for state_file in sorted(self.paths.state_dir.glob("*.json")):
             identity = self.identity_from_state_file(state_file)
@@ -291,11 +297,13 @@ class AgenticVM:
                 state_file.unlink(missing_ok=True)
         return identities
 
-    def identity_from_state_file(self, state_file: Path) -> VMIdentity | None:
+    def identity_from_state_file(self, state_file: Path) -> SandboxIdentity | None:
         try:
             state = json.loads(state_file.read_text(encoding="utf-8"))
             cwd = Path(state["cwd"]).resolve()
-            vm_id = state["vm_id"]
+            sandbox_id = state.get("sandbox_id")
+            if sandbox_id is None:
+                sandbox_id = state["vm_id"]
             unit_name = state["unit_name"]
             machine_name = state["machine_name"]
             backend = state.get("backend", "mkosi")
@@ -303,22 +311,22 @@ class AgenticVM:
             return None
         if backend != self.backend_name:
             return None
-        return VMIdentity(
+        return SandboxIdentity(
             cwd=cwd,
-            vm_id=vm_id,
+            sandbox_id=sandbox_id,
             unit_name=unit_name,
             machine_name=machine_name,
             state_file=state_file,
         )
 
-    def prune_stale_state(self, identity: VMIdentity) -> None:
+    def prune_stale_state(self, identity: SandboxIdentity) -> None:
         if identity.state_file.exists() and not self.backend.is_running(identity):
             identity.state_file.unlink(missing_ok=True)
 
-    def write_state(self, identity: VMIdentity) -> None:
-        state = VMState(
+    def write_state(self, identity: SandboxIdentity) -> None:
+        state = SandboxState(
             cwd=str(identity.cwd),
-            vm_id=identity.vm_id,
+            sandbox_id=identity.sandbox_id,
             unit_name=identity.unit_name,
             machine_name=identity.machine_name,
             image_dir=str(self.backend_image_dir()),
@@ -332,7 +340,7 @@ class AgenticVM:
     def backend_image_dir(self) -> Path:
         return getattr(self.backend, "image_dir", self.paths.image_dir)
 
-    def display_name(self, identity: VMIdentity) -> str:
+    def display_name(self, identity: SandboxIdentity) -> str:
         if self.backend_name == "podman":
             return identity.machine_name
         return identity.unit_name
@@ -382,7 +390,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     create_parser = subparsers.add_parser(
         "create",
-        help="Build the shared image if needed and create the VM for the current directory",
+        help="Build the shared image if needed and create the sandbox for the current directory",
     )
     create_parser.add_argument(
         "--wait",
@@ -391,15 +399,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_parser = subparsers.add_parser(
         "run",
-        help="Create the VM for the current directory if needed, then connect via ssh",
+        help="Create the sandbox for the current directory if needed, then connect via ssh",
     )
     run_parser.add_argument("ssh_args", nargs=argparse.REMAINDER)
     ssh_parser = subparsers.add_parser(
-        "ssh", help="Connect to the VM for the current directory"
+        "ssh", help="Connect to the sandbox for the current directory"
     )
     ssh_parser.add_argument("ssh_args", nargs=argparse.REMAINDER)
     stop_parser = subparsers.add_parser(
-        "stop", help="Gracefully stop the VM for the current directory"
+        "stop", help="Gracefully stop the sandbox for the current directory"
     )
     stop_parser.add_argument(
         "--force",
@@ -409,7 +417,7 @@ def build_parser() -> argparse.ArgumentParser:
     stop_parser.add_argument(
         "--all",
         action="store_true",
-        help="Stop all managed agentic VMs recorded in the state directory",
+        help="Stop all managed agentic sandboxes recorded in the state directory",
     )
     subparsers.add_parser("rebuild", help="Rebuild the shared mkosi image")
     return parser
@@ -418,26 +426,26 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     paths = Paths.detect()
-    app = AgenticVM(
+    app = AgenticSandbox(
         paths,
         Path.cwd(),
-        backend=make_backend(args.backend, paths, error_type=AgenticVMError),
+        backend=make_backend(args.backend, paths, error_type=AgenticSandboxError),
     )
     try:
         if args.command == "create":
             app.create(wait=args.wait)
             return 0
         if args.command == "run":
-            return app.run_vm(args.ssh_args)
+            return app.run_sandbox(args.ssh_args)
         if args.command == "ssh":
             return app.ssh(args.ssh_args)
         if args.command == "stop":
-            app.stop(all_vms=args.all, force=args.force)
+            app.stop(all_sandboxes=args.all, force=args.force)
             return 0
         if args.command == "rebuild":
             app.rebuild()
             return 0
-    except AgenticVMError as exc:
+    except AgenticSandboxError as exc:
         print(f"{APP_NAME}: {exc}", file=sys.stderr)
         return 1
     except subprocess.CalledProcessError as exc:
