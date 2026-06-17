@@ -18,12 +18,41 @@ from typing import Sequence, TextIO
 from .spinner import DEFAULT_SPINNER_FRAME_INTERVAL_SECONDS, Spinner
 
 APP_NAME = "agentic-vm"
-DEFAULT_PACKAGES = ["base", "linux", "openssh"]
 DEFAULT_RUNTIME_SIZE = "32G"
 DEFAULT_BOOT_TIMEOUT_SECONDS = 60.0
 DEFAULT_BOOT_POLL_INTERVAL_SECONDS = 1.0
 DEFAULT_STOP_TIMEOUT_SECONDS = 30.0
 DEFAULT_STOP_POLL_INTERVAL_SECONDS = 1.0
+HOST_PACMAN_MIRRORLIST = Path("/etc/pacman.d/mirrorlist")
+HOST_MIRRORLIST_TARGETS = (
+    Path("mkosi.sandbox/etc/pacman.d/mirrorlist"),
+    Path("mkosi.extra/etc/pacman.d/mirrorlist"),
+)
+
+DEFAULT_PACKAGES = [
+    "base",
+    "linux",
+    "linux-headers",
+    "openssh",
+    # Development
+    "nodejs",
+    "npm",
+    "rust",
+    "rust-analyzer",
+    "rustfmt",
+    "python",
+    "pyright",
+    "base-devel",
+    "clang",
+    "cmake",
+    "ninja",
+    "typst",
+    "tinymist",
+    "ripgrep",
+    # Agents
+    "openai-codex",
+    "opencode",
+]
 
 
 class AgenticVMError(RuntimeError):
@@ -229,15 +258,37 @@ class AgenticVM:
             relative = source.relative_to(self.paths.template_dir)
             if relative.suffix == ".in":
                 relative = relative.with_suffix("")
+                content = self.render_template(source)
+            else:
+                content = source.read_text(encoding="utf-8")
             target = self.paths.image_dir / relative
             target.parent.mkdir(parents=True, exist_ok=True)
-            rendered = self.render_template(source)
             if (
                 force
                 or not target.exists()
-                or target.read_text(encoding="utf-8") != rendered
+                or target.read_text(encoding="utf-8") != content
             ):
-                target.write_text(rendered, encoding="utf-8")
+                target.write_text(content, encoding="utf-8")
+            source_mode = source.stat().st_mode & 0o777
+            if target.stat().st_mode & 0o777 != source_mode:
+                target.chmod(source_mode)
+        self.sync_host_mirrorlist(force=force)
+
+    def sync_host_mirrorlist(self, force: bool = False) -> None:
+        if not HOST_PACMAN_MIRRORLIST.exists():
+            raise AgenticVMError(
+                f"host pacman mirrorlist is missing: {HOST_PACMAN_MIRRORLIST}"
+            )
+        content = HOST_PACMAN_MIRRORLIST.read_text(encoding="utf-8")
+        for relative in HOST_MIRRORLIST_TARGETS:
+            target = self.paths.image_dir / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if (
+                force
+                or not target.exists()
+                or target.read_text(encoding="utf-8") != content
+            ):
+                target.write_text(content, encoding="utf-8")
 
     def render_template(self, source: Path) -> str:
         template = source.read_text(encoding="utf-8")

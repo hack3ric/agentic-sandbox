@@ -1,0 +1,69 @@
+#!/bin/sh
+set -eu
+
+pacman_conf="$BUILDROOT/etc/pacman.conf"
+
+if [ ! -f "$pacman_conf" ]; then
+  exit 0
+fi
+
+# IgnorePkg linux linux-headers
+awk '
+    function flush_options() {
+        if (!in_options || options_written) {
+            return
+        }
+        print "IgnorePkg = linux linux-headers"
+        options_written = 1
+    }
+
+    BEGIN {
+        in_options = 0
+        options_seen = 0
+        options_written = 0
+    }
+
+    /^\[options\][[:space:]]*$/ {
+        if (in_options) {
+            flush_options()
+        }
+        in_options = 1
+        options_seen = 1
+        print
+        next
+    }
+
+    /^\[[^][]+\][[:space:]]*$/ {
+        if (in_options) {
+            flush_options()
+            in_options = 0
+        }
+        print
+        next
+    }
+
+    in_options && /^[[:space:]]*IgnorePkg[[:space:]]*=/ {
+        if (!options_written) {
+            print "IgnorePkg = linux linux-headers"
+            options_written = 1
+        }
+        next
+    }
+
+    {
+        print
+    }
+
+    END {
+        if (in_options) {
+            flush_options()
+            exit
+        }
+        if (!options_seen) {
+            print ""
+            print "[options]"
+            print "IgnorePkg = linux linux-headers"
+        }
+    }
+' "$pacman_conf" >"$pacman_conf.tmp"
+mv "$pacman_conf.tmp" "$pacman_conf"
