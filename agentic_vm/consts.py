@@ -1,6 +1,6 @@
 from pathlib import Path
 
-APP_NAME = "agentic-vm"
+APP_NAME = "agentic-sandbox"
 DEFAULT_STOP_TIMEOUT_SECONDS = 30.0
 DEFAULT_STOP_POLL_INTERVAL_SECONDS = 1.0
 

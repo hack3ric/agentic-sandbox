@@ -75,7 +75,7 @@ class MkosiBackend(Backend):
                 "--unit",
                 identity.unit_name,
                 "--description",
-                f"agentic-vm VM for {identity.cwd}",
+                f"agentic-sandbox VM for {identity.cwd}",
                 "--collect",
                 "--service-type=exec",
                 "--working-directory",

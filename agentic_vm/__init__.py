@@ -1,1 +1,1 @@
-"""agentic-vm package."""
+"""agentic-sandbox package."""

@@ -1,17 +1,17 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-`agentic_vm/main.py` contains the CLI, VM lifecycle orchestration, state tracking, and mkosi/systemd integration. `agentic_vm/spinner.py` contains terminal spinner support used while waiting for boot and shutdown. `agentic-vm` is the thin shell wrapper that execs the Python entrypoint. Mkosi templates currently live under `mkosi/`, with `mkosi/mkosi.conf.in` rendered into the shared image workspace at runtime.
+`agentic_vm/main.py` contains the CLI, VM lifecycle orchestration, state tracking, and mkosi/systemd integration. `agentic_vm/spinner.py` contains terminal spinner support used while waiting for boot and shutdown. `agentic-sandbox` is the thin shell wrapper that execs the Python entrypoint. Mkosi templates currently live under `mkosi/`, with `mkosi/mkosi.conf.in` rendered into the shared image workspace at runtime.
 
 ## Build, Test, and Development Commands
 Run commands from the repository root.
 
-- `./agentic-vm --help`: inspect the CLI surface quickly.
-- `./agentic-vm create --wait`: start a VM and wait until it is reachable.
-- `./agentic-vm run -- uname -a`: create-if-needed, wait for boot, then run a command over SSH.
-- `./agentic-vm ssh -- uname -a`: connect to an already running VM for the current directory.
-- `./agentic-vm stop --force`: stop the transient user unit without waiting for an in-guest shutdown.
-- `./agentic-vm rebuild`: rebuild the shared mkosi image; it refuses to run while managed VMs are active.
+- `./agentic-sandbox --help`: inspect the CLI surface quickly.
+- `./agentic-sandbox create --wait`: start a VM and wait until it is reachable.
+- `./agentic-sandbox run -- uname -a`: create-if-needed, wait for boot, then run a command over SSH.
+- `./agentic-sandbox ssh -- uname -a`: connect to an already running VM for the current directory.
+- `./agentic-sandbox stop --force`: stop the transient user unit without waiting for an in-guest shutdown.
+- `./agentic-sandbox rebuild`: rebuild the shared mkosi image; it refuses to run while managed VMs are active.
 - `python3 -m compileall agentic_vm`: quick syntax check after Python changes.
 
 ## Coding Style & Naming Conventions
@@ -24,4 +24,4 @@ Tests should use `unittest` and live under a top-level `tests/` package when add
 Recent commits use short, imperative subjects such as `graceful stop` and `subcommand changes`. Keep commit titles concise and behavior-focused. PRs should explain the user-visible change, mention any new flags or timeout behavior, and note how it was verified. Include command output summaries when changing CLI semantics; screenshots are not relevant for this repository.
 
 ## Security & Configuration Tips
-Do not commit generated runtime state or anything from `~/.local/share/agentic-vm` or `~/.local/state/agentic-vm`, including rendered mkosi workspaces, SSH credentials, or build markers. Treat mkosi template changes carefully: they affect every created VM image and every project that reuses the shared base image.
+Do not commit generated runtime state or anything from `~/.local/share/agentic-sandbox` or `~/.local/state/agentic-sandbox`, including rendered mkosi workspaces, SSH credentials, or build markers. Treat mkosi template changes carefully: they affect every created VM image and every project that reuses the shared base image.

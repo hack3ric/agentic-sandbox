@@ -7,7 +7,7 @@ from pathlib import Path
 class WrapperTests(unittest.TestCase):
     def test_wrapper_resolves_package_outside_repo_root(self) -> None:
         repo_root = Path(__file__).resolve().parent.parent
-        wrapper = repo_root / "agentic-vm"
+        wrapper = repo_root / "agentic-sandbox"
 
         with tempfile.TemporaryDirectory() as tmpdir:
             result = subprocess.run(
@@ -19,7 +19,7 @@ class WrapperTests(unittest.TestCase):
             )
 
         self.assertEqual(result.returncode, 0, msg=result.stderr)
-        self.assertIn("usage: agentic-vm", result.stdout)
+        self.assertIn("usage: agentic-sandbox", result.stdout)
 
 
 if __name__ == "__main__":

@@ -63,7 +63,7 @@ class IdentityTests(unittest.TestCase):
             identity = app.identity_for()
 
             self.assertLessEqual(len(identity.machine_name), MAX_MACHINE_NAME_LENGTH)
-            self.assertTrue(identity.machine_name.startswith("agentic-vm-"))
+            self.assertTrue(identity.machine_name.startswith("agentic-sandbox-"))
             self.assertTrue(identity.unit_name.endswith(".service"))
 
 

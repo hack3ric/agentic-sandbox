@@ -44,8 +44,8 @@ class StopTests(unittest.TestCase):
                 {
                     "cwd": str(cwd),
                     "vm_id": name,
-                    "unit_name": f"agentic-vm-{name}.service",
-                    "machine_name": f"agentic-vm-{name}",
+                    "unit_name": f"agentic-sandbox-{name}.service",
+                    "machine_name": f"agentic-sandbox-{name}",
                     "image_dir": str(paths.image_dir),
                     "backend": "mkosi",
                     "created_at": "2026-01-01T00:00:00+00:00",
@@ -70,8 +70,8 @@ class StopTests(unittest.TestCase):
                 {
                     "cwd": str(cwd),
                     "vm_id": name,
-                    "unit_name": f"agentic-vm-{name}.service",
-                    "machine_name": f"agentic-vm-{name}",
+                    "unit_name": f"agentic-sandbox-{name}.service",
+                    "machine_name": f"agentic-sandbox-{name}",
                     "image_dir": str(image_dir),
                     "backend": backend,
                     "created_at": "2026-01-01T00:00:00+00:00",
@@ -135,8 +135,8 @@ class StopTests(unittest.TestCase):
             self.assertEqual(
                 stop_calls,
                 [
-                    ("agentic-vm-first.service", False, 30.0, 1.0),
-                    ("agentic-vm-second.service", False, 30.0, 1.0),
+                    ("agentic-sandbox-first.service", False, 30.0, 1.0),
+                    ("agentic-sandbox-second.service", False, 30.0, 1.0),
                 ],
             )
             self.assertFalse(first_state.exists())
@@ -144,8 +144,8 @@ class StopTests(unittest.TestCase):
             self.assertEqual(
                 output.getvalue().splitlines(),
                 [
-                    "stopped agentic-vm-first.service",
-                    "stopped agentic-vm-second.service",
+                    "stopped agentic-sandbox-first.service",
+                    "stopped agentic-sandbox-second.service",
                 ],
             )
 
@@ -275,7 +275,7 @@ class StopTests(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 app.stop(all_vms=True)
 
-            self.assertEqual(stop_calls, ["agentic-vm-podman.service"])
+            self.assertEqual(stop_calls, ["agentic-sandbox-podman.service"])
             self.assertTrue(mkosi_state.exists())
             self.assertFalse(podman_state.exists())
 

@@ -162,7 +162,7 @@ class PodmanBackend(Backend):
 
     @property
     def image_tag(self) -> str:
-        return "localhost/agentic-vm:base"
+        return "localhost/agentic-sandbox:base"
 
     def build_cmd(self) -> list[str]:
         return [
