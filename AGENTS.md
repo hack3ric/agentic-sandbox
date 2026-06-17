@@ -6,12 +6,12 @@
 ## Build, Test, and Development Commands
 Run commands from the repository root.
 
-- `python3 -m agentic_vm.main --help`: inspect the CLI surface quickly.
-- `python3 -m agentic_vm.main create --wait`: start a VM and wait until it is reachable.
-- `python3 -m agentic_vm.main run -- uname -a`: create-if-needed, wait for boot, then run a command over SSH.
-- `python3 -m agentic_vm.main ssh -- uname -a`: connect to an already running VM for the current directory.
-- `python3 -m agentic_vm.main stop --force`: stop the transient user unit without waiting for an in-guest shutdown.
-- `python3 -m agentic_vm.main rebuild`: rebuild the shared mkosi image; it refuses to run while managed VMs are active.
+- `./agentic-vm --help`: inspect the CLI surface quickly.
+- `./agentic-vm create --wait`: start a VM and wait until it is reachable.
+- `./agentic-vm run -- uname -a`: create-if-needed, wait for boot, then run a command over SSH.
+- `./agentic-vm ssh -- uname -a`: connect to an already running VM for the current directory.
+- `./agentic-vm stop --force`: stop the transient user unit without waiting for an in-guest shutdown.
+- `./agentic-vm rebuild`: rebuild the shared mkosi image; it refuses to run while managed VMs are active.
 - `python3 -m compileall agentic_vm`: quick syntax check after Python changes.
 
 ## Coding Style & Naming Conventions
