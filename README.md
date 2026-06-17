@@ -13,4 +13,4 @@ Run from any project directory:
 ./agentic-vm rebuild
 ```
 
-Deps: dosfstools, mtools, virtiofsd
+Deps: mkosi, `$(mkosi dependencies)`, qemu, socat

@@ -242,11 +242,61 @@ class AgenticVM:
 
     def stop(
         self,
+        all_vms: bool = False,
         force: bool = False,
         timeout_seconds: float = DEFAULT_STOP_TIMEOUT_SECONDS,
         poll_interval_seconds: float = DEFAULT_STOP_POLL_INTERVAL_SECONDS,
     ) -> None:
+        if all_vms:
+            self.stop_all(
+                force=force,
+                timeout_seconds=timeout_seconds,
+                poll_interval_seconds=poll_interval_seconds,
+            )
+            return
         identity = self.identity_for()
+        unit_exists = self.stop_identity(
+            identity,
+            force=force,
+            timeout_seconds=timeout_seconds,
+            poll_interval_seconds=poll_interval_seconds,
+        )
+        print(
+            f"stopped {identity.unit_name}"
+            if unit_exists
+            else f"{identity.unit_name} was not running"
+        )
+
+    def stop_all(
+        self,
+        force: bool = False,
+        timeout_seconds: float = DEFAULT_STOP_TIMEOUT_SECONDS,
+        poll_interval_seconds: float = DEFAULT_STOP_POLL_INTERVAL_SECONDS,
+    ) -> None:
+        stopped_any = False
+        for identity in self.managed_identities():
+            unit_exists = self.stop_identity(
+                identity,
+                force=force,
+                timeout_seconds=timeout_seconds,
+                poll_interval_seconds=poll_interval_seconds,
+            )
+            stopped_any = stopped_any or unit_exists
+            print(
+                f"stopped {identity.unit_name}"
+                if unit_exists
+                else f"{identity.unit_name} was not running"
+            )
+        if not stopped_any:
+            print("no managed VMs were running")
+
+    def stop_identity(
+        self,
+        identity: VMIdentity,
+        force: bool,
+        timeout_seconds: float,
+        poll_interval_seconds: float,
+    ) -> bool:
         unit_exists = self.unit_known(identity.unit_name)
         if unit_exists:
             if not force:
@@ -259,13 +309,8 @@ class AgenticVM:
                     self.force_stop_unit(identity)
             else:
                 self.force_stop_unit(identity)
-        if identity.state_file.exists():
-            identity.state_file.unlink()
-        print(
-            f"stopped {identity.unit_name}"
-            if unit_exists
-            else f"{identity.unit_name} was not running"
-        )
+        identity.state_file.unlink(missing_ok=True)
+        return unit_exists
 
     def rebuild(self) -> None:
         self.ensure_directories()
@@ -425,6 +470,36 @@ class AgenticVM:
                 state_file.unlink(missing_ok=True)
         return active
 
+    def managed_identities(self) -> list[VMIdentity]:
+        identities: list[VMIdentity] = []
+        self.paths.state_dir.mkdir(parents=True, exist_ok=True)
+        for state_file in sorted(self.paths.state_dir.glob("*.json")):
+            identity = self.identity_from_state_file(state_file)
+            if identity is None:
+                continue
+            if self.unit_known(identity.unit_name):
+                identities.append(identity)
+            else:
+                state_file.unlink(missing_ok=True)
+        return identities
+
+    def identity_from_state_file(self, state_file: Path) -> VMIdentity | None:
+        try:
+            state = json.loads(state_file.read_text(encoding="utf-8"))
+            cwd = Path(state["cwd"]).resolve()
+            vm_id = state["vm_id"]
+            unit_name = state["unit_name"]
+            machine_name = state["machine_name"]
+        except (OSError, ValueError, KeyError):
+            return None
+        return VMIdentity(
+            cwd=cwd,
+            vm_id=vm_id,
+            unit_name=unit_name,
+            machine_name=machine_name,
+            state_file=state_file,
+        )
+
     def prune_stale_state(self, identity: VMIdentity) -> None:
         if identity.state_file.exists() and not self.is_unit_active(identity.unit_name):
             identity.state_file.unlink(missing_ok=True)
@@ -527,6 +602,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Force-stop the transient unit without waiting for an in-guest shutdown",
     )
+    stop_parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Stop all managed agentic VMs recorded in the state directory",
+    )
     subparsers.add_parser("rebuild", help="Rebuild the shared mkosi image")
     return parser
 
@@ -543,7 +623,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "ssh":
             return app.ssh(args.ssh_args)
         if args.command == "stop":
-            app.stop(force=args.force)
+            app.stop(all_vms=args.all, force=args.force)
             return 0
         if args.command == "rebuild":
             app.rebuild()
