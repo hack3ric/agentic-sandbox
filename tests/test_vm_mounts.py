@@ -131,6 +131,7 @@ class VMMountTests(unittest.TestCase):
             app = AgenticVM(paths, cwd, runner=runner)
             app.prune_stale_state = lambda identity: None
             app.is_unit_active = lambda unit_name: True
+            app.should_allocate_ssh_tty = lambda: False
 
             app.ssh(["--", "pwd"])
 
@@ -139,6 +140,40 @@ class VMMountTests(unittest.TestCase):
                 [
                     "--",
                     f"cd {shlex.quote(str(cwd))} && exec pwd",
+                ],
+            )
+
+    def test_ssh_allocates_tty_for_terminal_command(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = self.make_paths(root)
+            cwd = root / "project dir"
+            cwd.mkdir()
+
+            commands = []
+
+            class Result:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            def runner(command, **kwargs):
+                commands.append(command)
+                return Result()
+
+            app = AgenticVM(paths, cwd, runner=runner)
+            app.prune_stale_state = lambda identity: None
+            app.is_unit_active = lambda unit_name: True
+            app.should_allocate_ssh_tty = lambda: True
+
+            app.ssh(["--", "codex"])
+
+            self.assertEqual(
+                commands[0][-3:],
+                [
+                    "--",
+                    "-t",
+                    f"cd {shlex.quote(str(cwd))} && exec codex",
                 ],
             )
 

@@ -220,6 +220,9 @@ class AgenticVM:
         command.extend(["--", *self.ssh_remote_args(identity, extra_args)])
         return self.run(command).returncode
 
+    def should_allocate_ssh_tty(self) -> bool:
+        return hasattr(sys.stdin, "isatty") and sys.stdin.isatty()
+
     def ssh_remote_args(
         self, identity: VMIdentity, extra_args: Sequence[str]
     ) -> list[str]:
@@ -233,6 +236,8 @@ class AgenticVM:
                 f"cd {remote_cwd} && exec ${{SHELL:-/bin/bash}} -l",
             ]
         remote_command = " ".join(shlex.quote(arg) for arg in forwarded)
+        if self.should_allocate_ssh_tty():
+            return ["-t", f"cd {remote_cwd} && exec {remote_command}"]
         return [f"cd {remote_cwd} && exec {remote_command}"]
 
     def stop(
