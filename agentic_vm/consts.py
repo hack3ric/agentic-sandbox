@@ -5,10 +5,12 @@ DEFAULT_STOP_TIMEOUT_SECONDS = 30.0
 DEFAULT_STOP_POLL_INTERVAL_SECONDS = 1.0
 
 DEFAULT_PACKAGES = [
+    "archlinux-keyring",
     "base",
     "linux",
     "linux-headers",
     "openssh",
+    "git",
     "nodejs",
     "npm",
     "rust",
