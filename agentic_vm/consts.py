@@ -17,6 +17,7 @@ DEFAULT_PACKAGES = [
     "rust-analyzer",
     "rustfmt",
     "python",
+    "python-pip",
     "pyright",
     "base-devel",
     "clang",

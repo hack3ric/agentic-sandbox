@@ -184,6 +184,17 @@ class MkosiBackend(Backend):
             if source.is_dir():
                 continue
             relative = source.relative_to(self.paths.template_dir)
+            if relative.suffix == ".symlink":
+                relative = relative.with_suffix("")
+                symlink_target = source.read_text(encoding="utf-8").strip()
+                target = self.paths.image_dir / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if force or not target.is_symlink() or target.readlink() != Path(
+                    symlink_target
+                ):
+                    target.unlink(missing_ok=True)
+                    target.symlink_to(symlink_target)
+                continue
             if relative.suffix == ".in":
                 relative = relative.with_suffix("")
                 content = self.render_template(source)
@@ -204,10 +215,9 @@ class MkosiBackend(Backend):
 
     def sync_host_mirrorlist(self, force: bool = False) -> None:
         if not HOST_PACMAN_MIRRORLIST.exists():
-            # raise self.error_type(
-            #     f"host pacman mirrorlist is missing: {HOST_PACMAN_MIRRORLIST}"
-            # )
-            return
+            raise self.error_type(
+                f"host pacman mirrorlist is missing: {HOST_PACMAN_MIRRORLIST}"
+            )
         content = HOST_PACMAN_MIRRORLIST.read_text(encoding="utf-8")
         for relative in HOST_MIRRORLIST_TARGETS:
             target = self.paths.image_dir / relative

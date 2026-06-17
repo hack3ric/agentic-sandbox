@@ -38,7 +38,8 @@ class Paths:
 
     @classmethod
     def detect(cls) -> "Paths":
-        repo_root = Path(__file__).resolve().parent.parent
+        package_root = Path(__file__).resolve().parent
+        repo_root = package_root.parent
         home = Path(os.environ.get("HOME", "~")).expanduser().resolve()
         data_home = Path(
             os.environ.get("XDG_DATA_HOME", home / ".local" / "share")
@@ -51,7 +52,7 @@ class Paths:
         image_dir = data_dir / "base-image"
         return cls(
             repo_root=repo_root,
-            template_dir=repo_root / "mkosi",
+            template_dir=package_root / "mkosi",
             home=home,
             data_dir=data_dir,
             state_dir=state_dir,

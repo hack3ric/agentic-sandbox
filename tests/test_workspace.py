@@ -89,7 +89,9 @@ class WorkspaceTests(unittest.TestCase):
 
     def test_repo_postinst_initializes_pacman_keyring(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
-        postinst = (repo_root / "mkosi" / "mkosi.postinst").read_text(encoding="utf-8")
+        postinst = (
+            repo_root / "agentic_vm" / "mkosi" / "mkosi.postinst"
+        ).read_text(encoding="utf-8")
 
         self.assertIn(
             'pacman-key --gpgdir "$pacman_keyring_dir" --init',
@@ -99,6 +101,28 @@ class WorkspaceTests(unittest.TestCase):
             'pacman-key --gpgdir "$pacman_keyring_dir" --populate archlinux',
             postinst,
         )
+
+    def test_workspace_materializes_symlink_descriptors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = self.make_paths(root)
+            (paths.template_dir / "mask.service.symlink").write_text(
+                "/dev/null\n",
+                encoding="utf-8",
+            )
+            host_mirrorlist = root / "mirrorlist"
+            host_mirrorlist.write_text(
+                "Server = https://example.invalid/$repo/os/$arch\n",
+                encoding="utf-8",
+            )
+
+            backend = MkosiBackend(paths, error_type=AgenticVMError)
+            with patch("agentic_vm.mkosi_backend.HOST_PACMAN_MIRRORLIST", host_mirrorlist):
+                backend.ensure_mkosi_workspace()
+
+            target = paths.image_dir / "mask.service"
+            self.assertTrue(target.is_symlink())
+            self.assertEqual(target.readlink(), Path("/dev/null"))
 
     def test_workspace_requires_host_mirrorlist(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
