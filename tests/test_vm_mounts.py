@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agentic_vm.main import AgenticVM, Paths
+from agentic_vm.main import AgenticVM, GUEST_WORK_MOUNT, Paths
 
 
 class VMMountTests(unittest.TestCase):
@@ -29,7 +29,7 @@ class VMMountTests(unittest.TestCase):
             build_marker=image_dir / ".image-built.json",
         )
 
-    def test_create_adds_existing_host_bind_mounts(self) -> None:
+    def test_create_mounts_workspace_at_fixed_guest_path_and_adds_host_bind_mounts(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             paths = self.make_paths(root)
@@ -67,7 +67,7 @@ class VMMountTests(unittest.TestCase):
                 for index, value in enumerate(systemd_run)
                 if value == "--runtime-tree"
             ]
-            self.assertIn(f"{cwd}:{cwd}", runtime_trees)
+            self.assertIn(f"{cwd}:{GUEST_WORK_MOUNT}", runtime_trees)
             self.assertIn(
                 f"{paths.home / '.codex'}:/root/.codex", runtime_trees
             )
@@ -79,7 +79,7 @@ class VMMountTests(unittest.TestCase):
                 runtime_trees,
             )
 
-    def test_ssh_starts_interactive_session_in_project_directory(self) -> None:
+    def test_ssh_starts_interactive_session_after_binding_workspace_to_project_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             paths = self.make_paths(root)
@@ -105,12 +105,14 @@ class VMMountTests(unittest.TestCase):
 
             self.assertEqual(commands[0][-3], "--")
             self.assertEqual(commands[0][-2], "-t")
-            self.assertEqual(
-                commands[0][-1],
+            remote_command = commands[0][-1]
+            self.assertIn(f"mount --bind {GUEST_WORK_MOUNT} ", remote_command)
+            self.assertIn(
                 f"cd {shlex.quote(str(cwd))} && exec ${{SHELL:-/bin/bash}} -l",
+                remote_command,
             )
 
-    def test_ssh_runs_commands_from_project_directory(self) -> None:
+    def test_ssh_runs_commands_from_project_directory_after_binding_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             paths = self.make_paths(root)
@@ -135,12 +137,11 @@ class VMMountTests(unittest.TestCase):
 
             app.ssh(["--", "pwd"])
 
-            self.assertEqual(
-                commands[0][-2:],
-                [
-                    "--",
-                    f"cd {shlex.quote(str(cwd))} && exec pwd",
-                ],
+            self.assertEqual(commands[0][-2], "--")
+            remote_command = commands[0][-1]
+            self.assertIn(f"mount --bind {GUEST_WORK_MOUNT} ", remote_command)
+            self.assertTrue(
+                remote_command.endswith(f"cd {shlex.quote(str(cwd))} && exec pwd")
             )
 
     def test_ssh_allocates_tty_for_terminal_command(self) -> None:
@@ -168,13 +169,12 @@ class VMMountTests(unittest.TestCase):
 
             app.ssh(["--", "codex"])
 
-            self.assertEqual(
-                commands[0][-3:],
-                [
-                    "--",
-                    "-t",
-                    f"cd {shlex.quote(str(cwd))} && exec codex",
-                ],
+            self.assertEqual(commands[0][-3], "--")
+            self.assertEqual(commands[0][-2], "-t")
+            remote_command = commands[0][-1]
+            self.assertIn(f"mount --bind {GUEST_WORK_MOUNT} ", remote_command)
+            self.assertTrue(
+                remote_command.endswith(f"cd {shlex.quote(str(cwd))} && exec codex")
             )
 
 

@@ -35,6 +35,7 @@ HOST_BIND_MOUNTS = (
     Path(".codex"),
     Path(".claude"),
 )
+GUEST_WORK_MOUNT = Path("/mnt/work")
 
 DEFAULT_PACKAGES = [
     "base",
@@ -200,7 +201,7 @@ class AgenticVM:
             self.wait_for_machine()
 
     def runtime_tree_args(self, cwd: Path) -> list[str]:
-        args = ["--runtime-tree", f"{cwd}:{cwd}"]
+        args = ["--runtime-tree", f"{cwd}:{GUEST_WORK_MOUNT}"]
         for relative in HOST_BIND_MOUNTS:
             source = self.paths.home / relative
             if source.exists():
@@ -230,15 +231,26 @@ class AgenticVM:
         if forwarded and forwarded[0] == "--":
             forwarded = forwarded[1:]
         remote_cwd = shlex.quote(str(identity.cwd))
+        setup = self.remote_workspace_setup(identity)
         if not forwarded:
             return [
                 "-t",
-                f"cd {remote_cwd} && exec ${{SHELL:-/bin/bash}} -l",
+                f"{setup}cd {remote_cwd} && exec ${{SHELL:-/bin/bash}} -l",
             ]
         remote_command = " ".join(shlex.quote(arg) for arg in forwarded)
         if self.should_allocate_ssh_tty():
-            return ["-t", f"cd {remote_cwd} && exec {remote_command}"]
-        return [f"cd {remote_cwd} && exec {remote_command}"]
+            return ["-t", f"{setup}cd {remote_cwd} && exec {remote_command}"]
+        return [f"{setup}cd {remote_cwd} && exec {remote_command}"]
+
+    def remote_workspace_setup(self, identity: VMIdentity) -> str:
+        remote_cwd = shlex.quote(str(identity.cwd))
+        guest_work_mount = shlex.quote(str(GUEST_WORK_MOUNT))
+        return (
+            f"mkdir -p {guest_work_mount} {remote_cwd} && "
+            f"if ! mountpoint -q {remote_cwd}; then "
+            f"mount --bind {guest_work_mount} {remote_cwd}; "
+            f"fi && "
+        )
 
     def stop(
         self,

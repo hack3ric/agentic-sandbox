@@ -8,5 +8,5 @@ Format=disk
 Packages=@PACKAGES@
 Bootable=yes
 
-[Runtime]
-KernelCommandLineExtra=systemd.default_timeout_stop_sec=5s
+#[Runtime]
+#KernelCommandLineExtra=systemd.default_timeout_stop_sec=5s
