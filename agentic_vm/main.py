@@ -38,9 +38,6 @@ class Paths:
     data_dir: Path
     state_dir: Path
     image_dir: Path
-    config_file: Path
-    repart_dir: Path
-    root_partition_file: Path
     build_marker: Path
 
     @classmethod
@@ -63,9 +60,6 @@ class Paths:
             data_dir=data_dir,
             state_dir=state_dir,
             image_dir=image_dir,
-            config_file=image_dir / "mkosi.conf",
-            repart_dir=image_dir / "mkosi.repart",
-            root_partition_file=image_dir / "mkosi.repart" / "10-root.conf",
             build_marker=image_dir / ".image-built.json",
         )
 
@@ -227,7 +221,6 @@ class AgenticVM:
     def ensure_directories(self) -> None:
         self.paths.image_dir.mkdir(parents=True, exist_ok=True)
         self.paths.state_dir.mkdir(parents=True, exist_ok=True)
-        self.paths.repart_dir.mkdir(parents=True, exist_ok=True)
 
     def ensure_mkosi_workspace(self, force: bool = False) -> None:
         for source in sorted(self.paths.template_dir.rglob("*")):
