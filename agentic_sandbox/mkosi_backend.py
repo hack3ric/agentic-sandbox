@@ -7,7 +7,11 @@ import time
 from pathlib import Path
 from typing import Sequence, TextIO
 
-from agentic_sandbox.consts import DEFAULT_PACKAGES, HOST_BIND_MOUNTS
+from agentic_sandbox.consts import (
+    DEFAULT_PACKAGES,
+    HOST_BIND_MOUNTS,
+    HOST_PACMAN_MIRRORLIST,
+)
 
 from .backend import Backend
 from .spinner import DEFAULT_SPINNER_FRAME_INTERVAL_SECONDS, Spinner
@@ -15,7 +19,6 @@ from .spinner import DEFAULT_SPINNER_FRAME_INTERVAL_SECONDS, Spinner
 DEFAULT_RUNTIME_SIZE = "32G"
 DEFAULT_BOOT_TIMEOUT_SECONDS = 60.0
 DEFAULT_BOOT_POLL_INTERVAL_SECONDS = 1.0
-HOST_PACMAN_MIRRORLIST = Path("/etc/pacman.d/mirrorlist")
 HOST_MIRRORLIST_TARGETS = (
     Path("mkosi.sandbox/etc/pacman.d/mirrorlist"),
     Path("mkosi.extra/etc/pacman.d/mirrorlist"),
@@ -191,8 +194,10 @@ class MkosiBackend(Backend):
                 symlink_target = source.read_text(encoding="utf-8").strip()
                 target = self.paths.image_dir / relative
                 target.parent.mkdir(parents=True, exist_ok=True)
-                if force or not target.is_symlink() or target.readlink() != Path(
-                    symlink_target
+                if (
+                    force
+                    or not target.is_symlink()
+                    or target.readlink() != Path(symlink_target)
                 ):
                     target.unlink(missing_ok=True)
                     target.symlink_to(symlink_target)

@@ -18,6 +18,7 @@ from agentic_sandbox.consts import (
     APP_NAME,
     DEFAULT_STOP_POLL_INTERVAL_SECONDS,
     DEFAULT_STOP_TIMEOUT_SECONDS,
+    MAX_MACHINE_NAME_LENGTH,
 )
 
 from .mkosi_backend import MkosiBackend
@@ -26,9 +27,6 @@ from .podman_backend import PodmanBackend
 
 class AgenticSandboxError(RuntimeError):
     pass
-
-
-MAX_MACHINE_NAME_LENGTH = 64
 
 
 @dataclass(frozen=True)

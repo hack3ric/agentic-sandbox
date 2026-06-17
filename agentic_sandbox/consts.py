@@ -4,6 +4,8 @@ APP_NAME = "agentic-sandbox"
 DEFAULT_STOP_TIMEOUT_SECONDS = 30.0
 DEFAULT_STOP_POLL_INTERVAL_SECONDS = 1.0
 
+MAX_MACHINE_NAME_LENGTH = 64
+
 DEFAULT_PACKAGES = [
     "archlinux-keyring",
     "base",
@@ -43,3 +45,5 @@ HOST_BIND_MOUNTS = (
     Path(".codex"),
     Path(".claude"),
 )
+
+HOST_PACMAN_MIRRORLIST = Path("/etc/pacman.d/mirrorlist")

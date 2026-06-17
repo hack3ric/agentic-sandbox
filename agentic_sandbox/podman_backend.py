@@ -8,12 +8,15 @@ import time
 from pathlib import Path
 from typing import Sequence, TextIO
 
-from agentic_sandbox.consts import HOST_BIND_MOUNTS, PODMAN_PACKAGES
+from agentic_sandbox.consts import (
+    HOST_BIND_MOUNTS,
+    HOST_PACMAN_MIRRORLIST,
+    PODMAN_PACKAGES,
+)
 
 from .backend import Backend
 from .spinner import DEFAULT_SPINNER_FRAME_INTERVAL_SECONDS, Spinner
 
-HOST_PACMAN_MIRRORLIST = Path("/etc/pacman.d/mirrorlist")
 DEFAULT_BOOT_TIMEOUT_SECONDS = 30.0
 DEFAULT_BOOT_POLL_INTERVAL_SECONDS = 1.0
 
@@ -146,10 +149,18 @@ class PodmanBackend(Backend):
             command.append("-it")
         command.append(identity.machine_name)
         if not forwarded:
-            command.extend(["/bin/sh", "-lc", f"cd {shlex.quote(str(cwd))} && exec ${{SHELL:-/bin/bash}} -l"])
+            command.extend(
+                [
+                    "/bin/sh",
+                    "-lc",
+                    f"cd {shlex.quote(str(cwd))} && exec ${{SHELL:-/bin/bash}} -l",
+                ]
+            )
             return command
         remote_command = " ".join(shlex.quote(arg) for arg in forwarded)
-        command.extend(["/bin/sh", "-lc", f"cd {shlex.quote(str(cwd))} && exec {remote_command}"])
+        command.extend(
+            ["/bin/sh", "-lc", f"cd {shlex.quote(str(cwd))} && exec {remote_command}"]
+        )
         return command
 
     def mount_args(self, cwd: Path) -> list[str]:
@@ -210,7 +221,11 @@ class PodmanBackend(Backend):
         if HOST_PACMAN_MIRRORLIST.exists():
             content = HOST_PACMAN_MIRRORLIST.read_text(encoding="utf-8")
         target = self.image_dir / "host-mirrorlist"
-        if force or not target.exists() or target.read_text(encoding="utf-8") != content:
+        if (
+            force
+            or not target.exists()
+            or target.read_text(encoding="utf-8") != content
+        ):
             target.write_text(content, encoding="utf-8")
 
     def ensure_image_built(self) -> None:
@@ -259,7 +274,9 @@ class PodmanBackend(Backend):
             "image_dir": str(self.image_dir),
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
-        self.build_marker.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        self.build_marker.write_text(
+            json.dumps(payload, indent=2) + "\n", encoding="utf-8"
+        )
 
     def should_allocate_tty(self) -> bool:
         return hasattr(sys.stdin, "isatty") and sys.stdin.isatty()
