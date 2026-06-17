@@ -14,11 +14,14 @@ class IdentityTests(unittest.TestCase):
         data_dir = root / "data"
         state_dir = root / "state"
         image_dir = data_dir / "base-image"
+        podman_image_dir = data_dir / "podman-image"
         template_dir.mkdir(parents=True)
+        (repo_root / "podman").mkdir(parents=True)
         home.mkdir()
         data_dir.mkdir()
         state_dir.mkdir()
         image_dir.mkdir()
+        podman_image_dir.mkdir()
         return Paths(
             repo_root=repo_root,
             template_dir=template_dir,
@@ -27,6 +30,9 @@ class IdentityTests(unittest.TestCase):
             state_dir=state_dir,
             image_dir=image_dir,
             build_marker=image_dir / ".image-built.json",
+            podman_template_dir=repo_root / "podman",
+            podman_image_dir=podman_image_dir,
+            podman_build_marker=podman_image_dir / ".image-built.json",
         )
 
     def test_identity_encodes_workspace_path_in_names(self) -> None:

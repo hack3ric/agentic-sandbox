@@ -24,6 +24,8 @@ GUEST_WORK_MOUNT = Path("/mnt/work")
 
 
 class MkosiBackend(Backend):
+    name = "mkosi"
+
     def __init__(
         self,
         paths,

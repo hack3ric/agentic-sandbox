@@ -6,6 +6,8 @@ from typing import Sequence
 
 
 class Backend(ABC):
+    name = "backend"
+
     @abstractmethod
     def create(self, identity, cwd: Path, wait: bool = False) -> None:
         raise NotImplementedError

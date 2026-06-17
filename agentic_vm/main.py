@@ -21,6 +21,7 @@ from agentic_vm.consts import (
 )
 
 from .mkosi_backend import MkosiBackend
+from .podman_backend import PodmanBackend
 
 
 class AgenticVMError(RuntimeError):
@@ -39,6 +40,9 @@ class Paths:
     state_dir: Path
     image_dir: Path
     build_marker: Path
+    podman_template_dir: Path
+    podman_image_dir: Path
+    podman_build_marker: Path
 
     @classmethod
     def detect(cls) -> "Paths":
@@ -62,6 +66,9 @@ class Paths:
             state_dir=state_dir,
             image_dir=image_dir,
             build_marker=image_dir / ".image-built.json",
+            podman_template_dir=package_root / "podman",
+            podman_image_dir=data_dir / "podman-image",
+            podman_build_marker=(data_dir / "podman-image") / ".image-built.json",
         )
 
 
@@ -81,6 +88,7 @@ class VMState:
     unit_name: str
     machine_name: str
     image_dir: str
+    backend: str
     created_at: str
 
 
@@ -98,28 +106,33 @@ class AgenticVM:
     ):
         self.paths = paths
         self.cwd = cwd.resolve()
-        self.backend = backend or MkosiBackend(
+        self.backend = backend or make_backend(
+            "mkosi",
             paths,
             runner=runner,
             sleeper=sleeper,
             status_stream=status_stream,
             spinner_enabled=spinner_enabled,
-            spinner_frame_interval_seconds=spinner_frame_interval_seconds
-            if spinner_frame_interval_seconds is not None
-            else 0.1,
+            spinner_frame_interval_seconds=spinner_frame_interval_seconds,
             error_type=AgenticVMError,
         )
+        self.backend_name = getattr(self.backend, "name", "mkosi")
 
     def identity_for(self, cwd: Path | None = None) -> VMIdentity:
         resolved = (cwd or self.cwd).resolve()
         digest = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()[:12]
         machine_name = self.machine_name_for(resolved, digest)
+        state_name = (
+            f"{digest}.json"
+            if self.backend_name == "mkosi"
+            else f"{self.backend_name}-{digest}.json"
+        )
         return VMIdentity(
             cwd=resolved,
             vm_id=digest,
             unit_name=f"{machine_name}.service",
             machine_name=machine_name,
-            state_file=self.paths.state_dir / f"{digest}.json",
+            state_file=self.paths.state_dir / state_name,
         )
 
     def machine_name_for(self, cwd: Path, digest: str) -> str:
@@ -152,11 +165,13 @@ class AgenticVM:
         self.prune_stale_state(identity)
         if self.backend.is_running(identity):
             self.write_state(identity)
-            print(f"{identity.unit_name} is already active")
+            print(
+                f"{self.display_name(identity)} is already {self.active_status_word()}"
+            )
             return
         self.backend.create(identity, identity.cwd, wait=wait)
         self.write_state(identity)
-        print(f"created {identity.unit_name}")
+        print(f"created {self.display_name(identity)}")
 
     def run_vm(self, extra_args: Sequence[str]) -> int:
         self.create(wait=True)
@@ -189,9 +204,9 @@ class AgenticVM:
             poll_interval_seconds=poll_interval_seconds,
         )
         print(
-            f"stopped {identity.unit_name}"
+            f"stopped {self.display_name(identity)}"
             if unit_exists
-            else f"{identity.unit_name} was not running"
+            else f"{self.display_name(identity)} was not running"
         )
 
     def stop_all(
@@ -210,9 +225,9 @@ class AgenticVM:
             )
             stopped_any = stopped_any or unit_exists
             print(
-                f"stopped {identity.unit_name}"
+                f"stopped {self.display_name(identity)}"
                 if unit_exists
-                else f"{identity.unit_name} was not running"
+                else f"{self.display_name(identity)} was not running"
             )
         if not stopped_any:
             print("no managed VMs were running")
@@ -283,7 +298,10 @@ class AgenticVM:
             vm_id = state["vm_id"]
             unit_name = state["unit_name"]
             machine_name = state["machine_name"]
+            backend = state.get("backend", "mkosi")
         except (OSError, ValueError, KeyError):
+            return None
+        if backend != self.backend_name:
             return None
         return VMIdentity(
             cwd=cwd,
@@ -303,16 +321,64 @@ class AgenticVM:
             vm_id=identity.vm_id,
             unit_name=identity.unit_name,
             machine_name=identity.machine_name,
-            image_dir=str(self.paths.image_dir),
+            image_dir=str(self.backend_image_dir()),
+            backend=self.backend_name,
             created_at=datetime.now(timezone.utc).isoformat(),
         )
         identity.state_file.write_text(
             json.dumps(asdict(state), indent=2) + "\n", encoding="utf-8"
         )
 
+    def backend_image_dir(self) -> Path:
+        return getattr(self.backend, "image_dir", self.paths.image_dir)
+
+    def display_name(self, identity: VMIdentity) -> str:
+        if self.backend_name == "podman":
+            return identity.machine_name
+        return identity.unit_name
+
+    def active_status_word(self) -> str:
+        if self.backend_name == "podman":
+            return "running"
+        return "active"
+
+
+def make_backend(
+    name: str,
+    paths: Paths,
+    *,
+    runner=None,
+    sleeper=None,
+    status_stream=None,
+    spinner_enabled: bool | None = None,
+    spinner_frame_interval_seconds=None,
+    error_type: type[RuntimeError] = RuntimeError,
+):
+    kwargs = {
+        "runner": runner,
+        "sleeper": sleeper,
+        "status_stream": status_stream,
+        "spinner_enabled": spinner_enabled,
+        "spinner_frame_interval_seconds": spinner_frame_interval_seconds
+        if spinner_frame_interval_seconds is not None
+        else 0.1,
+        "error_type": error_type,
+    }
+    if name == "mkosi":
+        return MkosiBackend(paths, **kwargs)
+    if name == "podman":
+        return PodmanBackend(paths, **kwargs)
+    raise ValueError(f"unknown backend: {name}")
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog=APP_NAME)
+    parser.add_argument(
+        "--backend",
+        choices=("mkosi", "podman"),
+        default="mkosi",
+        help="Select the runtime backend",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
     create_parser = subparsers.add_parser(
         "create",
@@ -351,7 +417,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    app = AgenticVM(Paths.detect(), Path.cwd())
+    paths = Paths.detect()
+    app = AgenticVM(
+        paths,
+        Path.cwd(),
+        backend=make_backend(args.backend, paths, error_type=AgenticVMError),
+    )
     try:
         if args.command == "create":
             app.create(wait=args.wait)

@@ -1,3 +1,5 @@
+import contextlib
+import io
 import shlex
 import tempfile
 import unittest
@@ -15,11 +17,14 @@ class VMMountTests(unittest.TestCase):
         data_dir = root / "data"
         state_dir = root / "state"
         image_dir = data_dir / "base-image"
+        podman_image_dir = data_dir / "podman-image"
         template_dir.mkdir(parents=True)
+        (repo_root / "podman").mkdir(parents=True)
         home.mkdir()
         data_dir.mkdir()
         state_dir.mkdir()
         image_dir.mkdir()
+        podman_image_dir.mkdir()
         return Paths(
             repo_root=repo_root,
             template_dir=template_dir,
@@ -28,6 +33,9 @@ class VMMountTests(unittest.TestCase):
             state_dir=state_dir,
             image_dir=image_dir,
             build_marker=image_dir / ".image-built.json",
+            podman_template_dir=repo_root / "podman",
+            podman_image_dir=podman_image_dir,
+            podman_build_marker=podman_image_dir / ".image-built.json",
         )
 
     def test_create_mounts_workspace_at_fixed_guest_path_and_adds_host_bind_mounts(self) -> None:
@@ -60,7 +68,8 @@ class VMMountTests(unittest.TestCase):
             backend.ensure_ssh_credentials = lambda: None
             backend.ensure_image_built = lambda: None
 
-            app.create()
+            with contextlib.redirect_stdout(io.StringIO()):
+                app.create()
 
             systemd_run = commands[0]
             self.assertIn("--runtime-tree", systemd_run)

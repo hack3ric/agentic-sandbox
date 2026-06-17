@@ -1,1 +1,2 @@
 recursive-include agentic_vm/mkosi *
+recursive-include agentic_vm/podman *

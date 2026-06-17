@@ -1,0 +1,14 @@
+FROM docker.io/archlinux:latest
+
+COPY host-mirrorlist /tmp/host-mirrorlist
+
+RUN if [ -s /tmp/host-mirrorlist ]; then \
+        cp /tmp/host-mirrorlist /etc/pacman.d/mirrorlist; \
+    fi
+
+RUN pacman-key --init && \
+    pacman-key --populate archlinux && \
+    pacman -Syu --noconfirm && \
+    pacman -S --noconfirm \
+        @PACKAGES@ && \
+    pacman -Scc --noconfirm
