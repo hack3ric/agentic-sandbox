@@ -6,13 +6,13 @@ import argparse
 import hashlib
 import json
 import os
+import shlex
 import subprocess
 import sys
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from string import Template
 from typing import Sequence, TextIO
 
 from .spinner import DEFAULT_SPINNER_FRAME_INTERVAL_SECONDS, Spinner
@@ -27,6 +27,13 @@ HOST_PACMAN_MIRRORLIST = Path("/etc/pacman.d/mirrorlist")
 HOST_MIRRORLIST_TARGETS = (
     Path("mkosi.sandbox/etc/pacman.d/mirrorlist"),
     Path("mkosi.extra/etc/pacman.d/mirrorlist"),
+)
+HOST_BIND_MOUNTS = (
+    Path(".local/share/opencode"),
+    Path(".local/state/opencode"),
+    Path(".config/opencode"),
+    Path(".codex"),
+    Path(".claude"),
 )
 
 DEFAULT_PACKAGES = [
@@ -157,7 +164,8 @@ class AgenticVM:
             print(f"{identity.unit_name} is already active")
             return
         self.ensure_image_built()
-        command = self.mkosi_cmd(
+        command = [
+            *self.mkosi_cmd(
             "--vmm=qemu",
             "--machine",
             identity.machine_name,
@@ -166,11 +174,11 @@ class AgenticVM:
             "--runtime-size",
             DEFAULT_RUNTIME_SIZE,
             "--runtime-network=user",
-            "--runtime-tree",
-            f"{identity.cwd}:{identity.cwd}",
             "--register=no",
             "vm",
-        )
+            ),
+            *self.runtime_tree_args(identity.cwd),
+        ]
         self.run(
             [
                 "systemd-run",
@@ -191,6 +199,14 @@ class AgenticVM:
         if wait:
             self.wait_for_machine()
 
+    def runtime_tree_args(self, cwd: Path) -> list[str]:
+        args = ["--runtime-tree", f"{cwd}:{cwd}"]
+        for relative in HOST_BIND_MOUNTS:
+            source = self.paths.home / relative
+            if source.exists():
+                args.extend(["--runtime-tree", f"{source}:{Path('/root') / relative}"])
+        return args
+
     def run_vm(self, extra_args: Sequence[str]) -> int:
         self.create(wait=True)
         return self.ssh(extra_args)
@@ -201,12 +217,23 @@ class AgenticVM:
         if not self.is_unit_active(identity.unit_name):
             raise AgenticVMError(f"{identity.unit_name} is not active")
         command = self.mkosi_cmd("--machine", identity.machine_name, "ssh")
+        command.extend(["--", *self.ssh_remote_args(identity, extra_args)])
+        return self.run(command).returncode
+
+    def ssh_remote_args(
+        self, identity: VMIdentity, extra_args: Sequence[str]
+    ) -> list[str]:
         forwarded = list(extra_args)
         if forwarded and forwarded[0] == "--":
             forwarded = forwarded[1:]
-        if forwarded:
-            command.extend(["--", *forwarded])
-        return self.run(command).returncode
+        remote_cwd = shlex.quote(str(identity.cwd))
+        if not forwarded:
+            return [
+                "-t",
+                f"cd {remote_cwd} && exec ${{SHELL:-/bin/bash}} -l",
+            ]
+        remote_command = " ".join(shlex.quote(arg) for arg in forwarded)
+        return [f"cd {remote_cwd} && exec {remote_command}"]
 
     def stop(
         self,
@@ -292,9 +319,7 @@ class AgenticVM:
 
     def render_template(self, source: Path) -> str:
         template = source.read_text(encoding="utf-8")
-        return Template(template.replace("@PACKAGES@", "${PACKAGES}")).substitute(
-            PACKAGES=",".join(DEFAULT_PACKAGES)
-        )
+        return template.replace("@PACKAGES@", ",".join(DEFAULT_PACKAGES))
 
     def ensure_ssh_credentials(self) -> None:
         key = self.paths.image_dir / "mkosi.key"
