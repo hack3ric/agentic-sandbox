@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import os
+import string
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
@@ -24,6 +25,9 @@ from .mkosi_backend import MkosiBackend
 
 class AgenticVMError(RuntimeError):
     pass
+
+
+MAX_MACHINE_NAME_LENGTH = 64
 
 
 @dataclass(frozen=True)
@@ -109,13 +113,38 @@ class AgenticVM:
     def identity_for(self, cwd: Path | None = None) -> VMIdentity:
         resolved = (cwd or self.cwd).resolve()
         digest = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()[:12]
+        machine_name = self.machine_name_for(resolved, digest)
         return VMIdentity(
             cwd=resolved,
             vm_id=digest,
-            unit_name=f"{APP_NAME}-{digest}.service",
-            machine_name=f"{APP_NAME}-{digest}",
+            unit_name=f"{machine_name}.service",
+            machine_name=machine_name,
             state_file=self.paths.state_dir / f"{digest}.json",
         )
+
+    def machine_name_for(self, cwd: Path, digest: str) -> str:
+        prefix = f"{APP_NAME}-"
+        suffix = f"-{digest}"
+        max_slug_length = MAX_MACHINE_NAME_LENGTH - len(prefix) - len(suffix)
+        encoded_path = self.encode_path_for_name(cwd)
+        if len(encoded_path) > max_slug_length:
+            encoded_path = encoded_path[:max_slug_length]
+        return f"{prefix}{encoded_path}{suffix}"
+
+    def encode_path_for_name(self, path: Path) -> str:
+        safe_chars = set(string.ascii_lowercase + string.digits)
+        encoded_parts: list[str] = []
+        for part in path.parts:
+            if part in (path.root, path.anchor):
+                continue
+            encoded = []
+            for char in part.lower():
+                if char in safe_chars:
+                    encoded.append(char)
+                else:
+                    encoded.append(f"_{ord(char):02x}")
+            encoded_parts.append("".join(encoded) or "_")
+        return "-".join(encoded_parts) or "root"
 
     def create(self, wait: bool = False) -> None:
         identity = self.identity_for()
