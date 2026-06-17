@@ -110,7 +110,7 @@ class PodmanBackendTests(unittest.TestCase):
             app.prune_stale_state = lambda identity: None
             backend.is_running = lambda identity: True
 
-            app.ssh([])
+            app.exec_in_sandbox([])
 
             command = commands[0]
             self.assertEqual(command[:3], ["podman", "exec", "--workdir"])
@@ -142,7 +142,7 @@ class PodmanBackendTests(unittest.TestCase):
             backend.is_running = lambda identity: True
             backend.should_allocate_tty = lambda: False
 
-            app.ssh(["--", "pwd"])
+            app.exec_in_sandbox(["--", "pwd"])
 
             command = commands[0]
             self.assertNotIn("-it", command)

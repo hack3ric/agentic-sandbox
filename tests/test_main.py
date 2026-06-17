@@ -45,7 +45,7 @@ class MainTests(unittest.TestCase):
         args = build_parser().parse_args(["--backend", "podman", "run", "--", "uname"])
         self.assertEqual(args.backend, "podman")
         self.assertEqual(args.command, "run")
-        self.assertEqual(args.ssh_args, ["--", "uname"])
+        self.assertEqual(args.exec_args, ["--", "uname"])
 
     def test_main_dispatches_selected_backend(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -113,7 +113,7 @@ class SandboxMountTests(unittest.TestCase):
             app.prune_stale_state = lambda identity: None
             backend.is_running = lambda identity: True
 
-            app.ssh([])
+            app.exec_in_sandbox([])
 
             self.assertEqual(commands[0][-3], "--")
             self.assertEqual(commands[0][-2], "-t")
@@ -148,7 +148,7 @@ class SandboxMountTests(unittest.TestCase):
             backend.is_running = lambda identity: True
             backend.should_allocate_ssh_tty = lambda: False
 
-            app.ssh(["--", "pwd"])
+            app.exec_in_sandbox(["--", "pwd"])
 
             self.assertEqual(commands[0][-2], "--")
             remote_command = commands[0][-1]
@@ -181,7 +181,7 @@ class SandboxMountTests(unittest.TestCase):
             backend.is_running = lambda identity: True
             backend.should_allocate_ssh_tty = lambda: True
 
-            app.ssh(["--", "codex"])
+            app.exec_in_sandbox(["--", "codex"])
 
             self.assertEqual(commands[0][-3], "--")
             self.assertEqual(commands[0][-2], "-t")

@@ -177,9 +177,9 @@ class AgenticSandbox:
 
     def run_sandbox(self, extra_args: Sequence[str]) -> int:
         self.create(wait=True)
-        return self.ssh(extra_args)
+        return self.exec_in_sandbox(extra_args)
 
-    def ssh(self, extra_args: Sequence[str]) -> int:
+    def exec_in_sandbox(self, extra_args: Sequence[str]) -> int:
         identity = self.identity_for()
         self.prune_stale_state(identity)
         return self.backend.ssh(identity, identity.cwd, extra_args)
@@ -397,13 +397,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_parser = subparsers.add_parser(
         "run",
-        help="Create the sandbox for the current directory if needed, then connect via ssh",
+        help="Create the sandbox for the current directory if needed, then execute a command inside it",
     )
-    run_parser.add_argument("ssh_args", nargs=argparse.REMAINDER)
-    ssh_parser = subparsers.add_parser(
-        "ssh", help="Connect to the sandbox for the current directory"
+    run_parser.add_argument("exec_args", nargs=argparse.REMAINDER)
+    exec_parser = subparsers.add_parser(
+        "exec", help="Execute a command or open a shell in the sandbox for the current directory"
     )
-    ssh_parser.add_argument("ssh_args", nargs=argparse.REMAINDER)
+    exec_parser.add_argument("exec_args", nargs=argparse.REMAINDER)
     stop_parser = subparsers.add_parser(
         "stop", help="Gracefully stop the sandbox for the current directory"
     )
@@ -434,9 +434,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             app.create(wait=args.wait)
             return 0
         if args.command == "run":
-            return app.run_sandbox(args.ssh_args)
-        if args.command == "ssh":
-            return app.ssh(args.ssh_args)
+            return app.run_sandbox(args.exec_args)
+        if args.command == "exec":
+            return app.exec_in_sandbox(args.exec_args)
         if args.command == "stop":
             app.stop(all_sandboxes=args.all, force=args.force)
             return 0
