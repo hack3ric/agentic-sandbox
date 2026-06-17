@@ -62,30 +62,50 @@ class StopTests(unittest.TestCase):
             first_state = self.write_state(paths, "first", first_cwd)
             second_state = self.write_state(paths, "second", second_cwd)
 
-            graceful_stops = []
-            waited_for = []
+            stop_calls = []
 
-            app = AgenticVM(paths, cwd, spinner_enabled=False)
-            app.unit_known = lambda unit_name: True
-            app.request_graceful_stop = lambda identity: graceful_stops.append(
-                identity.unit_name
-            )
-            app.wait_for_unit_inactive = (
-                lambda identity, timeout_seconds, poll_interval_seconds: (
-                    waited_for.append(identity.unit_name) or True
-                )
-            )
-            app.force_stop_unit = lambda identity: self.fail("force stop not expected")
+            class FakeBackend:
+                def create(self, identity, cwd, wait=False):
+                    raise AssertionError("create not expected")
+
+                def ssh(self, identity, cwd, extra_args):
+                    raise AssertionError("ssh not expected")
+
+                def stop(
+                    self, identity, force, timeout_seconds, poll_interval_seconds
+                ):
+                    stop_calls.append(
+                        (
+                            identity.unit_name,
+                            force,
+                            timeout_seconds,
+                            poll_interval_seconds,
+                        )
+                    )
+                    return True
+
+                def rebuild(self):
+                    raise AssertionError("rebuild not expected")
+
+                def is_running(self, identity):
+                    return True
+
+                def is_known(self, identity):
+                    return True
+
+            app = AgenticVM(paths, cwd, backend=FakeBackend())
 
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
                 app.stop(all_vms=True)
 
             self.assertEqual(
-                graceful_stops,
-                ["agentic-vm-first.service", "agentic-vm-second.service"],
+                stop_calls,
+                [
+                    ("agentic-vm-first.service", False, 30.0, 1.0),
+                    ("agentic-vm-second.service", False, 30.0, 1.0),
+                ],
             )
-            self.assertEqual(waited_for, graceful_stops)
             self.assertFalse(first_state.exists())
             self.assertFalse(second_state.exists())
             self.assertEqual(
@@ -106,15 +126,28 @@ class StopTests(unittest.TestCase):
             stale_cwd.mkdir()
             stale_state = self.write_state(paths, "stale", stale_cwd)
 
-            app = AgenticVM(paths, cwd, spinner_enabled=False)
-            app.unit_known = lambda unit_name: False
-            app.request_graceful_stop = lambda identity: self.fail(
-                "graceful stop not expected"
-            )
-            app.wait_for_unit_inactive = lambda *args, **kwargs: self.fail(
-                "wait not expected"
-            )
-            app.force_stop_unit = lambda identity: self.fail("force stop not expected")
+            class FakeBackend:
+                def create(self, identity, cwd, wait=False):
+                    raise AssertionError("create not expected")
+
+                def ssh(self, identity, cwd, extra_args):
+                    raise AssertionError("ssh not expected")
+
+                def stop(
+                    self, identity, force, timeout_seconds, poll_interval_seconds
+                ):
+                    raise AssertionError("stop not expected")
+
+                def rebuild(self):
+                    raise AssertionError("rebuild not expected")
+
+                def is_running(self, identity):
+                    return False
+
+                def is_known(self, identity):
+                    return False
+
+            app = AgenticVM(paths, cwd, backend=FakeBackend())
 
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
@@ -122,6 +155,46 @@ class StopTests(unittest.TestCase):
 
             self.assertFalse(stale_state.exists())
             self.assertEqual(output.getvalue().splitlines(), ["no managed VMs were running"])
+
+    def test_create_delegates_to_backend_and_writes_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = self.make_paths(root)
+            cwd = root / "project"
+            cwd.mkdir()
+            calls = []
+
+            class FakeBackend:
+                def create(self, identity, backend_cwd, wait=False):
+                    calls.append((identity.unit_name, backend_cwd, wait))
+
+                def ssh(self, identity, backend_cwd, extra_args):
+                    raise AssertionError("ssh not expected")
+
+                def stop(
+                    self, identity, force, timeout_seconds, poll_interval_seconds
+                ):
+                    raise AssertionError("stop not expected")
+
+                def rebuild(self):
+                    raise AssertionError("rebuild not expected")
+
+                def is_running(self, identity):
+                    return False
+
+                def is_known(self, identity):
+                    return False
+
+            app = AgenticVM(paths, cwd, backend=FakeBackend())
+
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                app.create(wait=True)
+
+            identity = app.identity_for()
+            self.assertEqual(calls, [(identity.unit_name, cwd.resolve(), True)])
+            self.assertTrue(identity.state_file.exists())
+            self.assertEqual(output.getvalue().splitlines(), [f"created {identity.unit_name}"])
 
 
 if __name__ == "__main__":

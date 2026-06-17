@@ -3,7 +3,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agentic_vm.main import AgenticVM, AgenticVMError, Paths
+from agentic_vm.main import AgenticVMError, Paths
+from agentic_vm.mkosi_backend import MkosiBackend
 
 
 class WorkspaceTests(unittest.TestCase):
@@ -51,9 +52,9 @@ class WorkspaceTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            app = AgenticVM(paths, paths.repo_root)
-            with patch("agentic_vm.main.HOST_PACMAN_MIRRORLIST", host_mirrorlist):
-                app.ensure_mkosi_workspace()
+            backend = MkosiBackend(paths, error_type=AgenticVMError)
+            with patch("agentic_vm.mkosi_backend.HOST_PACMAN_MIRRORLIST", host_mirrorlist):
+                backend.ensure_mkosi_workspace()
 
             self.assertIn(
                 "linux-headers",
@@ -89,12 +90,12 @@ class WorkspaceTests(unittest.TestCase):
             (paths.template_dir / "mkosi.conf.in").write_text(
                 "[Content]\nPackages=@PACKAGES@\n", encoding="utf-8"
             )
-            app = AgenticVM(paths, paths.repo_root)
+            backend = MkosiBackend(paths, error_type=AgenticVMError)
             missing = root / "missing-mirrorlist"
 
-            with patch("agentic_vm.main.HOST_PACMAN_MIRRORLIST", missing):
+            with patch("agentic_vm.mkosi_backend.HOST_PACMAN_MIRRORLIST", missing):
                 with self.assertRaises(AgenticVMError):
-                    app.ensure_mkosi_workspace()
+                    backend.ensure_mkosi_workspace()
 
 
 if __name__ == "__main__":

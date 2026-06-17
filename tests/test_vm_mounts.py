@@ -3,7 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agentic_vm.main import AgenticVM, GUEST_WORK_MOUNT, Paths
+from agentic_vm.main import AgenticVM, Paths
+from agentic_vm.mkosi_backend import GUEST_WORK_MOUNT, MkosiBackend
 
 
 class VMMountTests(unittest.TestCase):
@@ -49,14 +50,15 @@ class VMMountTests(unittest.TestCase):
                 commands.append(command)
                 return Result()
 
-            app = AgenticVM(paths, cwd, runner=runner)
+            backend = MkosiBackend(paths, runner=runner)
+            app = AgenticVM(paths, cwd, backend=backend)
             app.ensure_directories = lambda: None
-            app.ensure_mkosi_workspace = lambda force=False: None
-            app.ensure_ssh_credentials = lambda: None
             app.prune_stale_state = lambda identity: None
-            app.is_unit_active = lambda unit_name: False
-            app.ensure_image_built = lambda: None
             app.write_state = lambda identity: None
+            backend.is_running = lambda identity: False
+            backend.ensure_mkosi_workspace = lambda force=False: None
+            backend.ensure_ssh_credentials = lambda: None
+            backend.ensure_image_built = lambda: None
 
             app.create()
 
@@ -97,9 +99,10 @@ class VMMountTests(unittest.TestCase):
                 commands.append(command)
                 return Result()
 
-            app = AgenticVM(paths, cwd, runner=runner)
+            backend = MkosiBackend(paths, runner=runner)
+            app = AgenticVM(paths, cwd, backend=backend)
             app.prune_stale_state = lambda identity: None
-            app.is_unit_active = lambda unit_name: True
+            backend.is_running = lambda identity: True
 
             app.ssh([])
 
@@ -130,10 +133,11 @@ class VMMountTests(unittest.TestCase):
                 commands.append(command)
                 return Result()
 
-            app = AgenticVM(paths, cwd, runner=runner)
+            backend = MkosiBackend(paths, runner=runner)
+            app = AgenticVM(paths, cwd, backend=backend)
             app.prune_stale_state = lambda identity: None
-            app.is_unit_active = lambda unit_name: True
-            app.should_allocate_ssh_tty = lambda: False
+            backend.is_running = lambda identity: True
+            backend.should_allocate_ssh_tty = lambda: False
 
             app.ssh(["--", "pwd"])
 
@@ -162,10 +166,11 @@ class VMMountTests(unittest.TestCase):
                 commands.append(command)
                 return Result()
 
-            app = AgenticVM(paths, cwd, runner=runner)
+            backend = MkosiBackend(paths, runner=runner)
+            app = AgenticVM(paths, cwd, backend=backend)
             app.prune_stale_state = lambda identity: None
-            app.is_unit_active = lambda unit_name: True
-            app.should_allocate_ssh_tty = lambda: True
+            backend.is_running = lambda identity: True
+            backend.should_allocate_ssh_tty = lambda: True
 
             app.ssh(["--", "codex"])
 
