@@ -12,6 +12,11 @@ ln -sf \
   /usr/lib/systemd/system/systemd-growfs-root.service \
   "$BUILDROOT/etc/systemd/system/sysinit.target.wants/systemd-growfs-root.service"
 
+pacman_keyring_dir="$BUILDROOT/etc/pacman.d/gnupg"
+mkdir -p "$pacman_keyring_dir"
+fakeroot pacman-key --gpgdir "$pacman_keyring_dir" --init
+fakeroot pacman-key --gpgdir "$pacman_keyring_dir" --populate archlinux
+
 # IgnorePkg linux linux-headers
 awk '
     function flush_options() {

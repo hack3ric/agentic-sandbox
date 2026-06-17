@@ -57,6 +57,10 @@ class WorkspaceTests(unittest.TestCase):
                 backend.ensure_mkosi_workspace()
 
             self.assertIn(
+                "archlinux-keyring",
+                (paths.image_dir / "mkosi.conf").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
                 "linux-headers",
                 (paths.image_dir / "mkosi.conf").read_text(encoding="utf-8"),
             )
@@ -82,6 +86,19 @@ class WorkspaceTests(unittest.TestCase):
                 ).read_text(encoding="utf-8"),
                 "[Partition]\nType=root\nGrowFileSystem=yes\n",
             )
+
+    def test_repo_postinst_initializes_pacman_keyring(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        postinst = (repo_root / "mkosi" / "mkosi.postinst").read_text(encoding="utf-8")
+
+        self.assertIn(
+            'pacman-key --gpgdir "$pacman_keyring_dir" --init',
+            postinst,
+        )
+        self.assertIn(
+            'pacman-key --gpgdir "$pacman_keyring_dir" --populate archlinux',
+            postinst,
+        )
 
     def test_workspace_requires_host_mirrorlist(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
