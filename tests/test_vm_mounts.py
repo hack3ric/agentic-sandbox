@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agentic_vm.main import AgenticVM, Paths
-from agentic_vm.mkosi_backend import GUEST_WORK_MOUNT, MkosiBackend
+from agentic_sandbox.main import AgenticVM, Paths
+from agentic_sandbox.mkosi_backend import GUEST_WORK_MOUNT, MkosiBackend
 
 
 class VMMountTests(unittest.TestCase):

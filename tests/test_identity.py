@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agentic_vm.main import AgenticVM, MAX_MACHINE_NAME_LENGTH, Paths
+from agentic_sandbox.main import AgenticVM, MAX_MACHINE_NAME_LENGTH, Paths
 
 
 class IdentityTests(unittest.TestCase):

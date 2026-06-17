@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-`agentic_vm/main.py` contains the CLI, VM lifecycle orchestration, state tracking, and mkosi/systemd integration. `agentic_vm/spinner.py` contains terminal spinner support used while waiting for boot and shutdown. `agentic-sandbox` is the thin shell wrapper that execs the Python entrypoint. Mkosi templates currently live under `mkosi/`, with `mkosi/mkosi.conf.in` rendered into the shared image workspace at runtime.
+`agentic_sandbox/main.py` contains the CLI, VM lifecycle orchestration, state tracking, and mkosi/systemd integration. `agentic_sandbox/spinner.py` contains terminal spinner support used while waiting for boot and shutdown. `agentic-sandbox` is the thin shell wrapper that execs the Python entrypoint. Mkosi templates currently live under `mkosi/`, with `mkosi/mkosi.conf.in` rendered into the shared image workspace at runtime.
 
 ## Build, Test, and Development Commands
 Run commands from the repository root.
@@ -12,7 +12,7 @@ Run commands from the repository root.
 - `./agentic-sandbox ssh -- uname -a`: connect to an already running VM for the current directory.
 - `./agentic-sandbox stop --force`: stop the transient user unit without waiting for an in-guest shutdown.
 - `./agentic-sandbox rebuild`: rebuild the shared mkosi image; it refuses to run while managed VMs are active.
-- `python3 -m compileall agentic_vm`: quick syntax check after Python changes.
+- `python3 -m compileall agentic_sandbox`: quick syntax check after Python changes.
 
 ## Coding Style & Naming Conventions
 Use Python 3 with 4-space indentation and standard library features where possible. Follow the existing style: small methods, explicit constants, and dataclasses for structured state. Use `snake_case` for functions and variables, `UPPER_SNAKE_CASE` for module-level constants, and descriptive test names like `test_stop_force_skips_graceful_shutdown`. Keep shell wrapper changes minimal and ASCII-only unless the file already requires otherwise.

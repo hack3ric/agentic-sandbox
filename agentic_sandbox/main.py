@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
 
-from agentic_vm.consts import (
+from agentic_sandbox.consts import (
     APP_NAME,
     DEFAULT_STOP_POLL_INTERVAL_SECONDS,
     DEFAULT_STOP_TIMEOUT_SECONDS,

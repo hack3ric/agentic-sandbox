@@ -4,8 +4,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agentic_vm.main import AgenticVM, AgenticVMError, Paths
-from agentic_vm.podman_backend import PodmanBackend
+from agentic_sandbox.main import AgenticVM, AgenticVMError, Paths
+from agentic_sandbox.podman_backend import PodmanBackend
 
 
 class PodmanBackendTests(unittest.TestCase):
@@ -268,7 +268,7 @@ class PodmanBackendTests(unittest.TestCase):
 
             backend = PodmanBackend(paths, error_type=AgenticVMError)
             with patch(
-                "agentic_vm.podman_backend.HOST_PACMAN_MIRRORLIST", host_mirrorlist
+                "agentic_sandbox.podman_backend.HOST_PACMAN_MIRRORLIST", host_mirrorlist
             ):
                 backend.ensure_workspace()
 

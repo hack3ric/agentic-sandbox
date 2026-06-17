@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import Sequence, TextIO
 
-from agentic_vm.consts import DEFAULT_PACKAGES, HOST_BIND_MOUNTS
+from agentic_sandbox.consts import DEFAULT_PACKAGES, HOST_BIND_MOUNTS
 
 from .backend import Backend
 from .spinner import DEFAULT_SPINNER_FRAME_INTERVAL_SECONDS, Spinner

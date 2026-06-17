@@ -1,2 +1,2 @@
-recursive-include agentic_vm/mkosi *
-recursive-include agentic_vm/podman *
+recursive-include agentic_sandbox/mkosi *
+recursive-include agentic_sandbox/podman *

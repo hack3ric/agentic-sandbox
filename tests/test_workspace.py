@@ -3,8 +3,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agentic_vm.main import AgenticVMError, Paths
-from agentic_vm.mkosi_backend import MkosiBackend
+from agentic_sandbox.main import AgenticVMError, Paths
+from agentic_sandbox.mkosi_backend import MkosiBackend
 
 
 class WorkspaceTests(unittest.TestCase):
@@ -59,7 +59,7 @@ class WorkspaceTests(unittest.TestCase):
             )
 
             backend = MkosiBackend(paths, error_type=AgenticVMError)
-            with patch("agentic_vm.mkosi_backend.HOST_PACMAN_MIRRORLIST", host_mirrorlist):
+            with patch("agentic_sandbox.mkosi_backend.HOST_PACMAN_MIRRORLIST", host_mirrorlist):
                 backend.ensure_mkosi_workspace()
 
             self.assertIn(
@@ -96,7 +96,7 @@ class WorkspaceTests(unittest.TestCase):
     def test_repo_postinst_initializes_pacman_keyring(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         postinst = (
-            repo_root / "agentic_vm" / "mkosi" / "mkosi.postinst"
+            repo_root / "agentic_sandbox" / "mkosi" / "mkosi.postinst"
         ).read_text(encoding="utf-8")
 
         self.assertIn(
@@ -123,7 +123,7 @@ class WorkspaceTests(unittest.TestCase):
             )
 
             backend = MkosiBackend(paths, error_type=AgenticVMError)
-            with patch("agentic_vm.mkosi_backend.HOST_PACMAN_MIRRORLIST", host_mirrorlist):
+            with patch("agentic_sandbox.mkosi_backend.HOST_PACMAN_MIRRORLIST", host_mirrorlist):
                 backend.ensure_mkosi_workspace()
 
             target = paths.image_dir / "mask.service"
@@ -140,7 +140,7 @@ class WorkspaceTests(unittest.TestCase):
             backend = MkosiBackend(paths, error_type=AgenticVMError)
             missing = root / "missing-mirrorlist"
 
-            with patch("agentic_vm.mkosi_backend.HOST_PACMAN_MIRRORLIST", missing):
+            with patch("agentic_sandbox.mkosi_backend.HOST_PACMAN_MIRRORLIST", missing):
                 with self.assertRaises(AgenticVMError):
                     backend.ensure_mkosi_workspace()
 

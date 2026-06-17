@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agentic_vm.main import Paths, build_parser, main
+from agentic_sandbox.main import Paths, build_parser, main
 
 
 class MainTests(unittest.TestCase):
@@ -61,9 +61,9 @@ class MainTests(unittest.TestCase):
                 def create(self, wait=False):
                     selected.append((self.backend, wait))
 
-            with patch("agentic_vm.main.Paths.detect", return_value=paths):
-                with patch("agentic_vm.main.make_backend", return_value="podman-backend"):
-                    with patch("agentic_vm.main.AgenticVM", FakeApp):
+            with patch("agentic_sandbox.main.Paths.detect", return_value=paths):
+                with patch("agentic_sandbox.main.make_backend", return_value="podman-backend"):
+                    with patch("agentic_sandbox.main.AgenticVM", FakeApp):
                         result = main(["--backend", "podman", "create", "--wait"])
 
             self.assertEqual(result, 0)
