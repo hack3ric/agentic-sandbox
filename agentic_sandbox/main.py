@@ -380,44 +380,48 @@ def make_backend(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog=APP_NAME)
     parser.add_argument(
+        "-b",
         "--backend",
         choices=("mkosi", "podman"),
         default="mkosi",
-        help="Select the runtime backend",
+        help="select the runtime backend",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     create_parser = subparsers.add_parser(
         "create",
-        help="Build the shared image if needed and create the sandbox for the current directory",
+        help="build the shared image if needed and create the sandbox for the current directory",
     )
     create_parser.add_argument(
         "--wait",
         action="store_true",
-        help="Wait for the guest to become reachable before returning",
+        help="wait for the guest to become reachable before returning",
     )
     run_parser = subparsers.add_parser(
         "run",
-        help="Create the sandbox for the current directory if needed, then execute a command inside it",
+        help="create the sandbox for the current directory if needed, then execute a command inside it",
     )
     run_parser.add_argument("exec_args", nargs=argparse.REMAINDER)
     exec_parser = subparsers.add_parser(
-        "exec", help="Execute a command or open a shell in the sandbox for the current directory"
+        "exec",
+        help="execute a command or open a shell in the sandbox for the current directory",
     )
     exec_parser.add_argument("exec_args", nargs=argparse.REMAINDER)
     stop_parser = subparsers.add_parser(
-        "stop", help="Gracefully stop the sandbox for the current directory"
+        "stop", help="stop the sandbox for the current directory"
     )
     stop_parser.add_argument(
+        "-f",
         "--force",
         action="store_true",
-        help="Force-stop the transient unit without waiting for an in-guest shutdown",
+        help="Force-stop without waiting for a shutdown",
     )
     stop_parser.add_argument(
+        "-a",
         "--all",
         action="store_true",
-        help="Stop all managed agentic sandboxes recorded in the state directory",
+        help="stop all managed agentic sandboxes",
     )
-    subparsers.add_parser("rebuild", help="Rebuild the shared mkosi image")
+    subparsers.add_parser("rebuild", help="rebuild shared image")
     return parser
 
 

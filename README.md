@@ -2,7 +2,14 @@
 
 Small Python wrapper around `mkosi` or `podman` for sandboxing LLM agents.
 
-## Commands
+It's sloppy now and only supports Arch Linux, but hopefully it will be better.
+
+Deps:
+- general: fakeroot
+- for `mkosi` backend: mkosi, `$(mkosi dependencies)`, qemu, socat
+- for `podman` backend: podman
+
+## Usage
 
 Run from any project directory:
 
@@ -15,10 +22,3 @@ $ ./agentic-sandbox exec
 $ ./agentic-sandbox stop
 $ ./agentic-sandbox rebuild
 ```
-
-`mkosi` remains the default backend. `podman` is an alternate rootless host backend; commands inside the container run as container `root`.
-
-Deps:
-- general: fakeroot
-- for `mkosi` backend: mkosi, `$(mkosi dependencies)`, qemu, socat
-- for `podman` backend: podman
