@@ -39,6 +39,12 @@ class WorkspaceTests(unittest.TestCase):
             postinst = paths.template_dir / "mkosi.postinst"
             postinst.write_text("#!/bin/sh\nprintf '%s\n' '@PACKAGES@'\n", encoding="utf-8")
             postinst.chmod(0o755)
+            repart = paths.template_dir / "mkosi.extra/usr/lib/repart.d/10-root.conf"
+            repart.parent.mkdir(parents=True, exist_ok=True)
+            repart.write_text(
+                "[Partition]\nType=root\nGrowFileSystem=yes\n",
+                encoding="utf-8",
+            )
             host_mirrorlist = root / "mirrorlist"
             host_mirrorlist.write_text(
                 "Server = https://example.invalid/$repo/os/$arch\n",
@@ -68,6 +74,12 @@ class WorkspaceTests(unittest.TestCase):
             self.assertIn(
                 "@PACKAGES@",
                 (paths.image_dir / "mkosi.postinst").read_text(encoding="utf-8"),
+            )
+            self.assertEqual(
+                (
+                    paths.image_dir / "mkosi.extra/usr/lib/repart.d/10-root.conf"
+                ).read_text(encoding="utf-8"),
+                "[Partition]\nType=root\nGrowFileSystem=yes\n",
             )
 
     def test_workspace_requires_host_mirrorlist(self) -> None:
