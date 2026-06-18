@@ -17,10 +17,6 @@ mkdir -p "$pacman_keyring_dir"
 fakeroot pacman-key --gpgdir "$pacman_keyring_dir" --init
 fakeroot pacman-key --gpgdir "$pacman_keyring_dir" --populate archlinux
 
-if ! grep -q '^someone:' "$BUILDROOT/etc/passwd"; then
-    chroot "$BUILDROOT" useradd --create-home --shell /bin/bash someone
-fi
-
 mkdir -p "$BUILDROOT/etc/sudoers.d"
 printf '%s\n' 'someone ALL=(ALL) NOPASSWD: ALL' >"$BUILDROOT/etc/sudoers.d/someone"
 chmod 0440 "$BUILDROOT/etc/sudoers.d/someone"

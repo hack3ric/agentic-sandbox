@@ -54,6 +54,25 @@ class WorkspaceTests(unittest.TestCase):
                 "[Partition]\nType=root\nGrowFileSystem=yes\n",
                 encoding="utf-8",
             )
+            sysusers = (
+                paths.template_dir
+                / "mkosi.extra/usr/lib/sysusers.d/agentic-sandbox.conf"
+            )
+            sysusers.parent.mkdir(parents=True, exist_ok=True)
+            sysusers.write_text(
+                'u someone - "Agentic Sandbox User" /home/someone /bin/bash\n'
+                "m someone wheel\n",
+                encoding="utf-8",
+            )
+            tmpfiles = (
+                paths.template_dir
+                / "mkosi.extra/usr/lib/tmpfiles.d/agentic-sandbox.conf"
+            )
+            tmpfiles.parent.mkdir(parents=True, exist_ok=True)
+            tmpfiles.write_text(
+                "d /home/someone 0755 someone someone -\n",
+                encoding="utf-8",
+            )
             host_mirrorlist = root / "mirrorlist"
             host_mirrorlist.write_text(
                 "Server = https://example.invalid/$repo/os/$arch\n",
@@ -100,6 +119,21 @@ class WorkspaceTests(unittest.TestCase):
                 ).read_text(encoding="utf-8"),
                 "[Partition]\nType=root\nGrowFileSystem=yes\n",
             )
+            self.assertEqual(
+                (
+                    paths.image_dir
+                    / "mkosi.extra/usr/lib/sysusers.d/agentic-sandbox.conf"
+                ).read_text(encoding="utf-8"),
+                'u someone - "Agentic Sandbox User" /home/someone /bin/bash\n'
+                "m someone wheel\n",
+            )
+            self.assertEqual(
+                (
+                    paths.image_dir
+                    / "mkosi.extra/usr/lib/tmpfiles.d/agentic-sandbox.conf"
+                ).read_text(encoding="utf-8"),
+                "d /home/someone 0755 someone someone -\n",
+            )
 
     def test_repo_postinst_initializes_pacman_keyring(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
@@ -116,13 +150,31 @@ class WorkspaceTests(unittest.TestCase):
             postinst,
         )
         self.assertIn(
-            "useradd --create-home --shell /bin/bash someone",
-            postinst,
-        )
-        self.assertIn(
             "'someone ALL=(ALL) NOPASSWD: ALL'",
             postinst,
         )
+
+    def test_repo_vm_user_setup_uses_sysusers_and_tmpfiles(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        sysusers = (
+            repo_root
+            / "agentic_sandbox"
+            / "mkosi"
+            / "mkosi.extra/usr/lib/sysusers.d/agentic-sandbox.conf"
+        ).read_text(encoding="utf-8")
+        tmpfiles = (
+            repo_root
+            / "agentic_sandbox"
+            / "mkosi"
+            / "mkosi.extra/usr/lib/tmpfiles.d/agentic-sandbox.conf"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            'u someone - "Agentic Sandbox User" /home/someone /bin/bash',
+            sysusers,
+        )
+        self.assertIn("m someone wheel", sysusers)
+        self.assertIn("d /home/someone 0755 someone someone -", tmpfiles)
 
     def test_workspace_materializes_symlink_descriptors(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
