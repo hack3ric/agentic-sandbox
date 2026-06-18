@@ -12,6 +12,7 @@ DEFAULT_PACKAGES = [
     "linux",
     "linux-headers",
     "openssh",
+    "sudo",
     "git",
     "nodejs",
     "npm",

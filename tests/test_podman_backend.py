@@ -105,7 +105,9 @@ class PodmanBackendTests(unittest.TestCase):
                 commands.append(command)
                 return Result()
 
-            backend = PodmanBackend(paths, runner=runner, error_type=AgenticSandboxError)
+            backend = PodmanBackend(
+                paths, runner=runner, error_type=AgenticSandboxError
+            )
             app = AgenticSandbox(paths, cwd, backend=backend)
             app.prune_stale_state = lambda identity: None
             backend.is_running = lambda identity: True
@@ -136,7 +138,9 @@ class PodmanBackendTests(unittest.TestCase):
                 commands.append(command)
                 return Result()
 
-            backend = PodmanBackend(paths, runner=runner, error_type=AgenticSandboxError)
+            backend = PodmanBackend(
+                paths, runner=runner, error_type=AgenticSandboxError
+            )
             app = AgenticSandbox(paths, cwd, backend=backend)
             app.prune_stale_state = lambda identity: None
             backend.is_running = lambda identity: True
@@ -168,7 +172,9 @@ class PodmanBackendTests(unittest.TestCase):
                     return Result(0)
                 return Result()
 
-            backend = PodmanBackend(paths, runner=runner, error_type=AgenticSandboxError)
+            backend = PodmanBackend(
+                paths, runner=runner, error_type=AgenticSandboxError
+            )
             identity = AgenticSandbox(paths, cwd, backend=backend).identity_for()
 
             backend.stop(
@@ -276,9 +282,28 @@ class PodmanBackendTests(unittest.TestCase):
                 "archlinux-keyring",
                 (paths.podman_image_dir / "Containerfile").read_text(encoding="utf-8"),
             )
+            self.assertIn(
+                "sudo",
+                (paths.podman_image_dir / "Containerfile").read_text(encoding="utf-8"),
+            )
             self.assertEqual(
                 (paths.podman_image_dir / "host-mirrorlist").read_text(
                     encoding="utf-8"
                 ),
                 host_mirrorlist.read_text(encoding="utf-8"),
             )
+
+    def test_repo_containerfile_creates_someone_sudoer(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        containerfile = (
+            repo_root / "agentic_sandbox" / "podman" / "Containerfile.in"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "useradd --create-home --shell /bin/bash someone",
+            containerfile,
+        )
+        self.assertIn(
+            "'someone ALL=(ALL) NOPASSWD: ALL'",
+            containerfile,
+        )

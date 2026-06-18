@@ -4,18 +4,26 @@ set -eu
 pacman_conf="$BUILDROOT/etc/pacman.conf"
 
 if [ ! -f "$pacman_conf" ]; then
-  exit 0
+    exit 0
 fi
 
 mkdir -p "$BUILDROOT/etc/systemd/system/sysinit.target.wants"
 ln -sf \
-  /usr/lib/systemd/system/systemd-growfs-root.service \
-  "$BUILDROOT/etc/systemd/system/sysinit.target.wants/systemd-growfs-root.service"
+    /usr/lib/systemd/system/systemd-growfs-root.service \
+    "$BUILDROOT/etc/systemd/system/sysinit.target.wants/systemd-growfs-root.service"
 
 pacman_keyring_dir="$BUILDROOT/etc/pacman.d/gnupg"
 mkdir -p "$pacman_keyring_dir"
 fakeroot pacman-key --gpgdir "$pacman_keyring_dir" --init
 fakeroot pacman-key --gpgdir "$pacman_keyring_dir" --populate archlinux
+
+if ! grep -q '^someone:' "$BUILDROOT/etc/passwd"; then
+    chroot "$BUILDROOT" useradd --create-home --shell /bin/bash someone
+fi
+
+mkdir -p "$BUILDROOT/etc/sudoers.d"
+printf '%s\n' 'someone ALL=(ALL) NOPASSWD: ALL' >"$BUILDROOT/etc/sudoers.d/someone"
+chmod 0440 "$BUILDROOT/etc/sudoers.d/someone"
 
 # IgnorePkg linux linux-headers
 awk '

@@ -44,7 +44,9 @@ class WorkspaceTests(unittest.TestCase):
                 "[Content]\nPackages=@PACKAGES@\n", encoding="utf-8"
             )
             postinst = paths.template_dir / "mkosi.postinst"
-            postinst.write_text("#!/bin/sh\nprintf '%s\n' '@PACKAGES@'\n", encoding="utf-8")
+            postinst.write_text(
+                "#!/bin/sh\nprintf '%s\n' '@PACKAGES@'\n", encoding="utf-8"
+            )
             postinst.chmod(0o755)
             repart = paths.template_dir / "mkosi.extra/usr/lib/repart.d/10-root.conf"
             repart.parent.mkdir(parents=True, exist_ok=True)
@@ -59,7 +61,9 @@ class WorkspaceTests(unittest.TestCase):
             )
 
             backend = MkosiBackend(paths, error_type=AgenticSandboxError)
-            with patch("agentic_sandbox.mkosi_backend.HOST_PACMAN_MIRRORLIST", host_mirrorlist):
+            with patch(
+                "agentic_sandbox.mkosi_backend.HOST_PACMAN_MIRRORLIST", host_mirrorlist
+            ):
                 backend.ensure_mkosi_workspace()
 
             self.assertIn(
@@ -68,6 +72,10 @@ class WorkspaceTests(unittest.TestCase):
             )
             self.assertIn(
                 "linux-headers",
+                (paths.image_dir / "mkosi.conf").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "sudo",
                 (paths.image_dir / "mkosi.conf").read_text(encoding="utf-8"),
             )
             for relative in (
@@ -107,6 +115,14 @@ class WorkspaceTests(unittest.TestCase):
             'pacman-key --gpgdir "$pacman_keyring_dir" --populate archlinux',
             postinst,
         )
+        self.assertIn(
+            "useradd --create-home --shell /bin/bash someone",
+            postinst,
+        )
+        self.assertIn(
+            "'someone ALL=(ALL) NOPASSWD: ALL'",
+            postinst,
+        )
 
     def test_workspace_materializes_symlink_descriptors(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -123,7 +139,9 @@ class WorkspaceTests(unittest.TestCase):
             )
 
             backend = MkosiBackend(paths, error_type=AgenticSandboxError)
-            with patch("agentic_sandbox.mkosi_backend.HOST_PACMAN_MIRRORLIST", host_mirrorlist):
+            with patch(
+                "agentic_sandbox.mkosi_backend.HOST_PACMAN_MIRRORLIST", host_mirrorlist
+            ):
                 backend.ensure_mkosi_workspace()
 
             target = paths.image_dir / "mask.service"

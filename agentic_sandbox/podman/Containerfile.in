@@ -12,3 +12,9 @@ RUN pacman-key --init && \
     pacman -S --noconfirm \
         @PACKAGES@ && \
     pacman -Scc --noconfirm
+
+
+RUN useradd --create-home --shell /bin/bash someone && \
+    mkdir -p /etc/sudoers.d && \
+    printf '%s\n' 'someone ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/someone && \
+    chmod 0440 /etc/sudoers.d/someone && \
