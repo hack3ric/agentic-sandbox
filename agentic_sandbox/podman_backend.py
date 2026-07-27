@@ -179,6 +179,7 @@ class PodmanBackend(Backend):
         return [
             "podman",
             "build",
+            "--no-cache",
             "--tag",
             self.image_tag,
             "--file",
