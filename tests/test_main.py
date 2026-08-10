@@ -61,12 +61,14 @@ class MainTests(unittest.TestCase):
                 def create(self, wait=False):
                     selected.append((self.backend, wait))
 
-            with patch("agentic_sandbox.main.Paths.detect", return_value=paths):
-                with patch(
+            with (
+                patch("agentic_sandbox.main.Paths.detect", return_value=paths),
+                patch(
                     "agentic_sandbox.main.make_backend", return_value="podman-backend"
-                ):
-                    with patch("agentic_sandbox.main.AgenticSandbox", FakeApp):
-                        result = main(["--backend", "podman", "create", "--wait"])
+                ),
+                patch("agentic_sandbox.main.AgenticSandbox", FakeApp),
+            ):
+                result = main(["--backend", "podman", "create", "--wait"])
 
             self.assertEqual(result, 0)
             self.assertEqual(selected, [("podman-backend", True)])

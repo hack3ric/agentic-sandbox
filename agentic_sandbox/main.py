@@ -44,7 +44,7 @@ class Paths:
     podman_build_marker: Path
 
     @classmethod
-    def detect(cls) -> "Paths":
+    def detect(cls) -> Paths:
         package_root = Path(__file__).resolve().parent
         repo_root = package_root.parent
         home = Path(os.environ.get("HOME", "~")).expanduser().resolve()
