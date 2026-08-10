@@ -210,9 +210,11 @@ class WorkspaceTests(unittest.TestCase):
             backend = MkosiBackend(paths, error_type=AgenticSandboxError)
             missing = root / "missing-mirrorlist"
 
-            with patch("agentic_sandbox.mkosi_backend.HOST_PACMAN_MIRRORLIST", missing):
-                with self.assertRaises(AgenticSandboxError):
-                    backend.ensure_mkosi_workspace()
+            with (
+                patch("agentic_sandbox.mkosi_backend.HOST_PACMAN_MIRRORLIST", missing),
+                self.assertRaises(AgenticSandboxError),
+            ):
+                backend.ensure_mkosi_workspace()
 
 
 if __name__ == "__main__":

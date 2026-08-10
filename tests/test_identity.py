@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agentic_sandbox.main import AgenticSandbox, MAX_MACHINE_NAME_LENGTH, Paths
+from agentic_sandbox.main import MAX_MACHINE_NAME_LENGTH, AgenticSandbox, Paths
 
 
 class IdentityTests(unittest.TestCase):

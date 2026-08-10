@@ -38,7 +38,9 @@ class SandboxMountTests(unittest.TestCase):
             podman_build_marker=podman_image_dir / ".image-built.json",
         )
 
-    def test_create_mounts_workspace_at_fixed_guest_path_and_adds_host_bind_mounts(self) -> None:
+    def test_create_mounts_workspace_at_fixed_guest_path_and_adds_host_bind_mounts(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             paths = self.make_paths(root)
@@ -79,18 +81,16 @@ class SandboxMountTests(unittest.TestCase):
                 if value == "--runtime-tree"
             ]
             self.assertIn(f"{cwd}:{GUEST_WORK_MOUNT}", runtime_trees)
-            self.assertIn(
-                f"{paths.home / '.codex'}:/root/.codex", runtime_trees
-            )
-            self.assertIn(
-                f"{paths.home / '.claude'}:/root/.claude", runtime_trees
-            )
+            self.assertIn(f"{paths.home / '.codex'}:/root/.codex", runtime_trees)
+            self.assertIn(f"{paths.home / '.claude'}:/root/.claude", runtime_trees)
             self.assertNotIn(
                 f"{paths.home / '.config/opencode'}:/root/.config/opencode",
                 runtime_trees,
             )
 
-    def test_ssh_starts_interactive_session_after_binding_workspace_to_project_path(self) -> None:
+    def test_ssh_starts_interactive_session_after_binding_workspace_to_project_path(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             paths = self.make_paths(root)
@@ -124,7 +124,9 @@ class SandboxMountTests(unittest.TestCase):
                 remote_command,
             )
 
-    def test_ssh_runs_commands_from_project_directory_after_binding_workspace(self) -> None:
+    def test_ssh_runs_commands_from_project_directory_after_binding_workspace(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             paths = self.make_paths(root)

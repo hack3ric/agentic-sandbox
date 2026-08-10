@@ -104,9 +104,7 @@ class StopTests(unittest.TestCase):
                 def ssh(self, identity, cwd, extra_args):
                     raise AssertionError("ssh not expected")
 
-                def stop(
-                    self, identity, force, timeout_seconds, poll_interval_seconds
-                ):
+                def stop(self, identity, force, timeout_seconds, poll_interval_seconds):
                     stop_calls.append(
                         (
                             identity.unit_name,
@@ -166,9 +164,7 @@ class StopTests(unittest.TestCase):
                 def ssh(self, identity, cwd, extra_args):
                     raise AssertionError("ssh not expected")
 
-                def stop(
-                    self, identity, force, timeout_seconds, poll_interval_seconds
-                ):
+                def stop(self, identity, force, timeout_seconds, poll_interval_seconds):
                     raise AssertionError("stop not expected")
 
                 def rebuild(self):
@@ -207,9 +203,7 @@ class StopTests(unittest.TestCase):
                 def ssh(self, identity, backend_cwd, extra_args):
                     raise AssertionError("ssh not expected")
 
-                def stop(
-                    self, identity, force, timeout_seconds, poll_interval_seconds
-                ):
+                def stop(self, identity, force, timeout_seconds, poll_interval_seconds):
                     raise AssertionError("stop not expected")
 
                 def rebuild(self):
@@ -230,7 +224,9 @@ class StopTests(unittest.TestCase):
             identity = app.identity_for()
             self.assertEqual(calls, [(identity.unit_name, cwd.resolve(), True)])
             self.assertTrue(identity.state_file.exists())
-            self.assertEqual(output.getvalue().splitlines(), [f"created {identity.unit_name}"])
+            self.assertEqual(
+                output.getvalue().splitlines(), [f"created {identity.unit_name}"]
+            )
 
     def test_stop_all_only_uses_selected_backend_states(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -258,9 +254,7 @@ class StopTests(unittest.TestCase):
                 def ssh(self, identity, cwd, extra_args):
                     raise AssertionError("ssh not expected")
 
-                def stop(
-                    self, identity, force, timeout_seconds, poll_interval_seconds
-                ):
+                def stop(self, identity, force, timeout_seconds, poll_interval_seconds):
                     stop_calls.append(identity.unit_name)
                     return True
 
@@ -282,7 +276,9 @@ class StopTests(unittest.TestCase):
             self.assertTrue(mkosi_state.exists())
             self.assertFalse(podman_state.exists())
 
-    def test_podman_create_and_stop_messages_use_container_name_not_service(self) -> None:
+    def test_podman_create_and_stop_messages_use_container_name_not_service(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             paths = self.make_paths(root)
@@ -299,9 +295,7 @@ class StopTests(unittest.TestCase):
                 def ssh(self, identity, backend_cwd, extra_args):
                     raise AssertionError("ssh not expected")
 
-                def stop(
-                    self, identity, force, timeout_seconds, poll_interval_seconds
-                ):
+                def stop(self, identity, force, timeout_seconds, poll_interval_seconds):
                     return True
 
                 def rebuild(self):
@@ -346,9 +340,7 @@ class StopTests(unittest.TestCase):
                 def ssh(self, identity, backend_cwd, extra_args):
                     raise AssertionError("ssh not expected")
 
-                def stop(
-                    self, identity, force, timeout_seconds, poll_interval_seconds
-                ):
+                def stop(self, identity, force, timeout_seconds, poll_interval_seconds):
                     raise AssertionError("stop not expected")
 
                 def rebuild(self):

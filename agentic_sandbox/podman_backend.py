@@ -5,8 +5,9 @@ import shlex
 import subprocess
 import sys
 import time
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence, TextIO
+from typing import TextIO
 
 from agentic_sandbox.consts import (
     HOST_BIND_MOUNTS,

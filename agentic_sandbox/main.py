@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# noqa: EXE001
 
 from __future__ import annotations
 
@@ -9,10 +10,10 @@ import os
 import string
 import subprocess
 import sys
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Sequence
 
 from agentic_sandbox.consts import (
     APP_NAME,

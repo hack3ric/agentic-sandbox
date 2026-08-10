@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agentic_sandbox.main import AgenticSandbox, Paths, build_parser, main
+from agentic_sandbox.main import Paths, build_parser, main
 
 
 class MainTests(unittest.TestCase):
@@ -62,7 +62,9 @@ class MainTests(unittest.TestCase):
                     selected.append((self.backend, wait))
 
             with patch("agentic_sandbox.main.Paths.detect", return_value=paths):
-                with patch("agentic_sandbox.main.make_backend", return_value="podman-backend"):
+                with patch(
+                    "agentic_sandbox.main.make_backend", return_value="podman-backend"
+                ):
                     with patch("agentic_sandbox.main.AgenticSandbox", FakeApp):
                         result = main(["--backend", "podman", "create", "--wait"])
 
