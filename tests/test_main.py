@@ -47,6 +47,15 @@ class MainTests(unittest.TestCase):
         self.assertEqual(args.command, "run")
         self.assertEqual(args.exec_args, ["--", "uname"])
 
+    def test_parser_collects_create_backend_args_after_separator(self) -> None:
+        args = build_parser().parse_args(
+            ["--backend", "podman", "create", "--wait", "--", "--cpus", "2"]
+        )
+
+        self.assertEqual(args.backend, "podman")
+        self.assertTrue(args.wait)
+        self.assertEqual(args.backend_args, ["--", "--cpus", "2"])
+
     def test_main_dispatches_selected_backend(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = self.make_paths(Path(tmpdir))
@@ -58,8 +67,8 @@ class MainTests(unittest.TestCase):
                     self.cwd_arg = cwd_arg
                     self.backend = backend
 
-                def create(self, wait=False):
-                    selected.append((self.backend, wait))
+                def create(self, wait=False, backend_args=()):
+                    selected.append((self.backend, wait, list(backend_args)))
 
             with (
                 patch("agentic_sandbox.main.Paths.detect", return_value=paths),
@@ -68,7 +77,19 @@ class MainTests(unittest.TestCase):
                 ),
                 patch("agentic_sandbox.main.AgenticSandbox", FakeApp),
             ):
-                result = main(["--backend", "podman", "create", "--wait"])
+                result = main(
+                    [
+                        "--backend",
+                        "podman",
+                        "create",
+                        "--wait",
+                        "--",
+                        "--cpus",
+                        "2",
+                    ]
+                )
 
             self.assertEqual(result, 0)
-            self.assertEqual(selected, [("podman-backend", True)])
+            self.assertEqual(
+                selected, [("podman-backend", True, ["--", "--cpus", "2"])]
+            )

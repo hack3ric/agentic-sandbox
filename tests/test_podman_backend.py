@@ -88,6 +88,25 @@ class PodmanBackendTests(unittest.TestCase):
             self.assertIn(["podman", "start", identity.machine_name], commands)
             self.assertIn(["wait", identity.machine_name], commands)
 
+    def test_create_cmd_places_backend_args_before_image(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = self.make_paths(root)
+            cwd = root / "project"
+            cwd.mkdir()
+            backend = PodmanBackend(paths)
+            identity = AgenticSandbox(paths, cwd, backend=backend).identity_for()
+
+            command = backend.create_cmd(
+                identity, cwd, ["--", "--cpus", "2", "--network", "host"]
+            )
+
+            image_index = command.index(backend.image_tag)
+            self.assertEqual(
+                command[image_index - 4 : image_index],
+                ["--cpus", "2", "--network", "host"],
+            )
+
     def test_ssh_runs_in_project_directory_and_selects_interactive_shell(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

@@ -50,12 +50,18 @@ class PodmanBackend(Backend):
         self.spinner_frame_interval_seconds = spinner_frame_interval_seconds
         self.error_type = error_type
 
-    def create(self, identity, cwd: Path, wait: bool = False) -> None:
+    def create(
+        self,
+        identity,
+        cwd: Path,
+        wait: bool = False,
+        backend_args: Sequence[str] = (),
+    ) -> None:
         self.ensure_image_dir()
         self.ensure_workspace()
         self.ensure_image_built()
         if not self.is_known(identity):
-            self.run(self.create_cmd(identity, cwd))
+            self.run(self.create_cmd(identity, cwd, backend_args))
         if wait and not self.is_running(identity):
             self.run(["podman", "start", identity.machine_name])
             self.wait_for_container(identity)
@@ -124,7 +130,12 @@ class PodmanBackend(Backend):
         )
         return result.returncode == 0
 
-    def create_cmd(self, identity, cwd: Path) -> list[str]:
+    def create_cmd(
+        self, identity, cwd: Path, backend_args: Sequence[str] = ()
+    ) -> list[str]:
+        forwarded = list(backend_args)
+        if forwarded and forwarded[0] == "--":
+            forwarded = forwarded[1:]
         return [
             "podman",
             "create",
@@ -135,6 +146,7 @@ class PodmanBackend(Backend):
             "--workdir",
             str(cwd),
             *self.mount_args(cwd),
+            *forwarded,
             self.image_tag,
             "/bin/sh",
             "-lc",

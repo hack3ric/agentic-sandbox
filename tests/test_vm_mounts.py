@@ -71,7 +71,7 @@ class SandboxMountTests(unittest.TestCase):
             backend.ensure_image_built = lambda: None
 
             with contextlib.redirect_stdout(io.StringIO()):
-                app.create()
+                app.create(backend_args=["--", "--qemu-smp", "4"])
 
             systemd_run = commands[0]
             self.assertIn("--runtime-tree", systemd_run)
@@ -87,6 +87,10 @@ class SandboxMountTests(unittest.TestCase):
                 f"{paths.home / '.config/opencode'}:/root/.config/opencode",
                 runtime_trees,
             )
+            self.assertEqual(
+                systemd_run[systemd_run.index("--qemu-smp") + 1], "4"
+            )
+            self.assertLess(systemd_run.index("--qemu-smp"), systemd_run.index("vm"))
 
     def test_ssh_starts_interactive_session_after_binding_workspace_to_project_path(
         self,

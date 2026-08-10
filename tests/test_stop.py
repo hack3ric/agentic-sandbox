@@ -98,7 +98,7 @@ class StopTests(unittest.TestCase):
             stop_calls = []
 
             class FakeBackend:
-                def create(self, identity, cwd, wait=False):
+                def create(self, identity, cwd, wait=False, backend_args=()):
                     raise AssertionError("create not expected")
 
                 def ssh(self, identity, cwd, extra_args):
@@ -158,7 +158,7 @@ class StopTests(unittest.TestCase):
             stale_state = self.write_state(paths, "stale", stale_cwd)
 
             class FakeBackend:
-                def create(self, identity, cwd, wait=False):
+                def create(self, identity, cwd, wait=False, backend_args=()):
                     raise AssertionError("create not expected")
 
                 def ssh(self, identity, cwd, extra_args):
@@ -197,8 +197,12 @@ class StopTests(unittest.TestCase):
             calls = []
 
             class FakeBackend:
-                def create(self, identity, backend_cwd, wait=False):
-                    calls.append((identity.unit_name, backend_cwd, wait))
+                def create(
+                    self, identity, backend_cwd, wait=False, backend_args=()
+                ):
+                    calls.append(
+                        (identity.unit_name, backend_cwd, wait, list(backend_args))
+                    )
 
                 def ssh(self, identity, backend_cwd, extra_args):
                     raise AssertionError("ssh not expected")
@@ -219,10 +223,20 @@ class StopTests(unittest.TestCase):
 
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
-                app.create(wait=True)
+                app.create(wait=True, backend_args=["--", "--qemu-smp", "4"])
 
             identity = app.identity_for()
-            self.assertEqual(calls, [(identity.unit_name, cwd.resolve(), True)])
+            self.assertEqual(
+                calls,
+                [
+                    (
+                        identity.unit_name,
+                        cwd.resolve(),
+                        True,
+                        ["--", "--qemu-smp", "4"],
+                    )
+                ],
+            )
             self.assertTrue(identity.state_file.exists())
             self.assertEqual(
                 output.getvalue().splitlines(), [f"created {identity.unit_name}"]
@@ -248,7 +262,7 @@ class StopTests(unittest.TestCase):
                 name = "podman"
                 image_dir = paths.podman_image_dir
 
-                def create(self, identity, cwd, wait=False):
+                def create(self, identity, cwd, wait=False, backend_args=()):
                     raise AssertionError("create not expected")
 
                 def ssh(self, identity, cwd, extra_args):
@@ -289,7 +303,9 @@ class StopTests(unittest.TestCase):
                 name = "podman"
                 image_dir = paths.podman_image_dir
 
-                def create(self, identity, backend_cwd, wait=False):
+                def create(
+                    self, identity, backend_cwd, wait=False, backend_args=()
+                ):
                     return None
 
                 def ssh(self, identity, backend_cwd, extra_args):
@@ -334,7 +350,9 @@ class StopTests(unittest.TestCase):
                 name = "podman"
                 image_dir = paths.podman_image_dir
 
-                def create(self, identity, backend_cwd, wait=False):
+                def create(
+                    self, identity, backend_cwd, wait=False, backend_args=()
+                ):
                     raise AssertionError("create not expected")
 
                 def ssh(self, identity, backend_cwd, extra_args):

@@ -162,7 +162,9 @@ class AgenticSandbox:
             encoded_parts.append("".join(encoded) or "_")
         return "-".join(encoded_parts) or "root"
 
-    def create(self, wait: bool = False) -> None:
+    def create(
+        self, wait: bool = False, backend_args: Sequence[str] = ()
+    ) -> None:
         identity = self.identity_for()
         self.ensure_directories()
         self.prune_stale_state(identity)
@@ -172,7 +174,9 @@ class AgenticSandbox:
                 f"{self.display_name(identity)} is already {self.active_status_word()}"
             )
             return
-        self.backend.create(identity, identity.cwd, wait=wait)
+        self.backend.create(
+            identity, identity.cwd, wait=wait, backend_args=backend_args
+        )
         self.write_state(identity)
         print(f"created {self.display_name(identity)}")
 
@@ -397,6 +401,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="wait for the guest to become reachable before returning",
     )
+    create_parser.add_argument(
+        "backend_args",
+        nargs=argparse.REMAINDER,
+        help="options passed to the selected backend after --",
+    )
     run_parser = subparsers.add_parser(
         "run",
         help="create the sandbox for the current directory if needed, then execute a command inside it",
@@ -436,7 +445,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     try:
         if args.command == "create":
-            app.create(wait=args.wait)
+            app.create(wait=args.wait, backend_args=args.backend_args)
             return 0
         if args.command == "run":
             return app.run_sandbox(args.exec_args)

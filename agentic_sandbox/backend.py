@@ -9,7 +9,13 @@ class Backend(ABC):
     name = "backend"
 
     @abstractmethod
-    def create(self, identity, cwd: Path, wait: bool = False) -> None:
+    def create(
+        self,
+        identity,
+        cwd: Path,
+        wait: bool = False,
+        backend_args: Sequence[str] = (),
+    ) -> None:
         raise NotImplementedError
 
     @abstractmethod

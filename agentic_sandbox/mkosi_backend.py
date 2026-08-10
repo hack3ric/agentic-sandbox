@@ -52,11 +52,20 @@ class MkosiBackend(Backend):
         self.spinner_frame_interval_seconds = spinner_frame_interval_seconds
         self.error_type = error_type
 
-    def create(self, identity, cwd: Path, wait: bool = False) -> None:
+    def create(
+        self,
+        identity,
+        cwd: Path,
+        wait: bool = False,
+        backend_args: Sequence[str] = (),
+    ) -> None:
         self.ensure_image_dir()
         self.ensure_mkosi_workspace()
         self.ensure_ssh_credentials()
         self.ensure_image_built()
+        forwarded = list(backend_args)
+        if forwarded and forwarded[0] == "--":
+            forwarded = forwarded[1:]
         command = [
             *self.mkosi_cmd(
                 "--vmm=qemu",
@@ -68,6 +77,7 @@ class MkosiBackend(Backend):
                 DEFAULT_RUNTIME_SIZE,
                 "--runtime-network=user",
                 "--register=no",
+                *forwarded,
                 "vm",
             ),
             *self.runtime_tree_args(cwd),
