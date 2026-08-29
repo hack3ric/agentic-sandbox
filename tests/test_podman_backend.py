@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from agentic_sandbox.main import AgenticSandbox, AgenticSandboxError, Paths
-from agentic_sandbox.podman_backend import PodmanBackend
+from agentic_sandbox.podman_backend import ARCH_LINUX_IMAGE, PodmanBackend
 
 
 class PodmanBackendTests(unittest.TestCase):
@@ -254,6 +254,18 @@ class PodmanBackendTests(unittest.TestCase):
 
             self.assertEqual(rebuild_calls, [True])
             print_mock.assert_called_once_with("rebuilt shared image")
+
+    def test_rebuild_pulls_latest_arch_image_before_building(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = self.make_paths(Path(tmpdir))
+            commands = []
+            backend = self.make_backend(paths, commands)
+            backend.ensure_workspace = lambda force=False: None
+
+            backend.rebuild()
+
+            self.assertEqual(commands[0], ["podman", "pull", ARCH_LINUX_IMAGE])
+            self.assertEqual(commands[1], backend.build_cmd())
 
     def test_mount_args_include_workspace_and_existing_optional_mounts(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

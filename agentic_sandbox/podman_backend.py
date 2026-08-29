@@ -20,6 +20,7 @@ from .spinner import DEFAULT_SPINNER_FRAME_INTERVAL_SECONDS, Spinner
 
 DEFAULT_BOOT_TIMEOUT_SECONDS = 30.0
 DEFAULT_BOOT_POLL_INTERVAL_SECONDS = 1.0
+ARCH_LINUX_IMAGE = "docker.io/archlinux:latest"
 
 
 class PodmanBackend(Backend):
@@ -102,6 +103,7 @@ class PodmanBackend(Backend):
     def rebuild(self) -> None:
         self.ensure_image_dir()
         self.ensure_workspace(force=True)
+        self.run(["podman", "pull", ARCH_LINUX_IMAGE])
         self.run(self.build_cmd())
         self.write_build_marker()
 
