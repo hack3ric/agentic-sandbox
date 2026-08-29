@@ -211,7 +211,7 @@ class PodmanBackendTests(unittest.TestCase):
                 ["podman", "rm", "-f", "-t", "0", identity.machine_name], commands
             )
 
-    def test_rebuild_refuses_when_selected_backend_has_active_managed_states(
+    def test_rebuild_allows_active_managed_states(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -245,10 +245,15 @@ class PodmanBackendTests(unittest.TestCase):
                 json.dumps({"backend": "mkosi"}) + "\n",
                 encoding="utf-8",
             )
+            rebuild_calls = []
             podman_backend.is_running = lambda identity: True
+            podman_backend.rebuild = lambda: rebuild_calls.append(True)
 
-            with self.assertRaises(AgenticSandboxError):
+            with patch("builtins.print") as print_mock:
                 app.rebuild()
+
+            self.assertEqual(rebuild_calls, [True])
+            print_mock.assert_called_once_with("rebuilt shared image")
 
     def test_mount_args_include_workspace_and_existing_optional_mounts(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

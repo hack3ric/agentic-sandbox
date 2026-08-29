@@ -256,36 +256,11 @@ class AgenticSandbox:
         return unit_exists
 
     def rebuild(self) -> None:
-        self.ensure_directories()
-        active = self.active_managed_units()
-        if active:
-            joined = ", ".join(active)
-            raise AgenticSandboxError(
-                f"refusing rebuild while sandboxes are active: {joined}"
-            )
         self.backend.rebuild()
         print("rebuilt shared image")
 
     def ensure_directories(self) -> None:
         self.paths.state_dir.mkdir(parents=True, exist_ok=True)
-
-    def active_managed_units(self) -> list[str]:
-        active: list[str] = []
-        self.paths.state_dir.mkdir(parents=True, exist_ok=True)
-        for state_file in sorted(self.paths.state_dir.glob("*.json")):
-            try:
-                state = json.loads(state_file.read_text(encoding="utf-8"))
-                unit_name = state["unit_name"]
-            except (OSError, ValueError, KeyError):
-                continue
-            identity = self.identity_from_state_file(state_file)
-            if identity is None:
-                continue
-            if self.backend.is_running(identity):
-                active.append(unit_name)
-            else:
-                state_file.unlink(missing_ok=True)
-        return active
 
     def managed_identities(self) -> list[SandboxIdentity]:
         identities: list[SandboxIdentity] = []
