@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-`agentic_sandbox/main.py` contains the CLI, sandbox lifecycle orchestration, state tracking, and mkosi/systemd integration. `agentic_sandbox/spinner.py` contains terminal spinner support used while waiting for boot and shutdown. `agentic-sandbox` is the thin shell wrapper that execs the Python entrypoint. Mkosi templates currently live under `mkosi/`, with `mkosi/mkosi.conf.in` rendered into the shared image workspace at runtime.
+`agentic_sandbox/main.py` contains the CLI, sandbox lifecycle orchestration, state tracking, and mkosi/systemd integration. `agentic_sandbox/spinner.py` contains terminal spinner support used while waiting for boot and shutdown. `agentic-sandbox` is the thin shell wrapper that execs the Python entrypoint. `agentic-container` and `agentic-vm` wrap it with the podman and mkosi backends, respectively. Mkosi templates currently live under `mkosi/`, with `mkosi/mkosi.conf.in` rendered into the shared image workspace at runtime.
 
 ## Build, Test, and Development Commands
 Run commands from the repository root.

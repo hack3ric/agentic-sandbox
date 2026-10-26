@@ -26,6 +26,17 @@ $ ./agentic-sandbox --backend mkosi stop
 $ ./agentic-sandbox --backend mkosi rebuild
 ```
 
+The root wrappers select the backend for you: `agentic-container` runs
+`agentic-sandbox --backend podman`, and `agentic-vm` runs
+`agentic-sandbox --backend mkosi`. Both forward all arguments:
+
+```console
+$ ./agentic-container create --wait
+$ ./agentic-container run -- uname -a
+$ ./agentic-vm create -- --qemu-smp 4
+$ ./agentic-vm run -- uname -a
+```
+
 Arguments after `--` on `create` are passed to the selected backend's create
 command. For mkosi they are added to `mkosi vm`; for podman they are added to
 `podman create` before the image name.
