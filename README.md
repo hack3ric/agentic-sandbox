@@ -37,6 +37,15 @@ $ ./agentic-vm create -- --qemu-smp 4
 $ ./agentic-vm run -- uname -a
 ```
 
+Use `--quiet` (or `-q`) on `create` or `run` to suppress agentic-sandbox's
+status messages on stdout. The sandbox command and backend tools still print
+their output, and errors remain visible on stderr:
+
+```console
+$ ./agentic-container create --quiet --wait
+$ ./agentic-vm run -q -- uname -a
+```
+
 Arguments after `--` on `create` are passed to the selected backend's create
 command. For mkosi they are added to `mkosi vm`; for podman they are added to
 `podman create` before the image name.

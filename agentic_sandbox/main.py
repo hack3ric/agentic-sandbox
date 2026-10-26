@@ -163,25 +163,30 @@ class AgenticSandbox:
         return "-".join(encoded_parts) or "root"
 
     def create(
-        self, wait: bool = False, backend_args: Sequence[str] = ()
+        self,
+        wait: bool = False,
+        backend_args: Sequence[str] = (),
+        quiet: bool = False,
     ) -> None:
         identity = self.identity_for()
         self.ensure_directories()
         self.prune_stale_state(identity)
         if self.backend.is_running(identity):
             self.write_state(identity)
-            print(
-                f"{self.display_name(identity)} is already {self.active_status_word()}"
-            )
+            if not quiet:
+                print(
+                    f"{self.display_name(identity)} is already {self.active_status_word()}"
+                )
             return
         self.backend.create(
             identity, identity.cwd, wait=wait, backend_args=backend_args
         )
         self.write_state(identity)
-        print(f"created {self.display_name(identity)}")
+        if not quiet:
+            print(f"created {self.display_name(identity)}")
 
-    def run_sandbox(self, extra_args: Sequence[str]) -> int:
-        self.create(wait=True)
+    def run_sandbox(self, extra_args: Sequence[str], quiet: bool = False) -> int:
+        self.create(wait=True, quiet=quiet)
         return self.exec_in_sandbox(extra_args)
 
     def exec_in_sandbox(self, extra_args: Sequence[str]) -> int:
@@ -377,6 +382,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="wait for the guest to become reachable before returning",
     )
     create_parser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="suppress agentic-sandbox status messages on stdout",
+    )
+    create_parser.add_argument(
         "backend_args",
         nargs=argparse.REMAINDER,
         help="options passed to the selected backend after --",
@@ -384,6 +395,12 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser = subparsers.add_parser(
         "run",
         help="create the sandbox for the current directory if needed, then execute a command inside it",
+    )
+    run_parser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="suppress agentic-sandbox status messages on stdout",
     )
     run_parser.add_argument("exec_args", nargs=argparse.REMAINDER)
     exec_parser = subparsers.add_parser(
@@ -420,10 +437,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     try:
         if args.command == "create":
-            app.create(wait=args.wait, backend_args=args.backend_args)
+            app.create(
+                wait=args.wait, backend_args=args.backend_args, quiet=args.quiet
+            )
             return 0
         if args.command == "run":
-            return app.run_sandbox(args.exec_args)
+            return app.run_sandbox(args.exec_args, quiet=args.quiet)
         if args.command == "exec":
             return app.exec_in_sandbox(args.exec_args)
         if args.command == "stop":
