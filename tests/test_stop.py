@@ -7,36 +7,10 @@ from pathlib import Path
 
 from agentic_sandbox.main import AgenticSandbox, Paths
 
+from tests.helpers import make_paths
+
 
 class StopTests(unittest.TestCase):
-    def make_paths(self, root: Path) -> Paths:
-        repo_root = root / "repo"
-        template_dir = repo_root / "mkosi"
-        home = root / "home"
-        data_dir = root / "data"
-        state_dir = root / "state"
-        image_dir = data_dir / "base-image"
-        podman_image_dir = data_dir / "podman-image"
-        template_dir.mkdir(parents=True)
-        (repo_root / "podman").mkdir(parents=True)
-        home.mkdir()
-        data_dir.mkdir()
-        state_dir.mkdir()
-        image_dir.mkdir()
-        podman_image_dir.mkdir()
-        return Paths(
-            repo_root=repo_root,
-            template_dir=template_dir,
-            home=home,
-            data_dir=data_dir,
-            state_dir=state_dir,
-            image_dir=image_dir,
-            build_marker=image_dir / ".image-built.json",
-            podman_template_dir=repo_root / "podman",
-            podman_image_dir=podman_image_dir,
-            podman_build_marker=podman_image_dir / ".image-built.json",
-        )
-
     def write_state(self, paths: Paths, name: str, cwd: Path) -> Path:
         state_file = paths.state_dir / f"{name}.json"
         state_file.write_text(
@@ -85,7 +59,7 @@ class StopTests(unittest.TestCase):
     def test_stop_all_stops_each_known_managed_vm(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = self.make_paths(root)
+            paths = make_paths(root)
             cwd = root / "project"
             cwd.mkdir()
             first_cwd = root / "first"
@@ -150,7 +124,7 @@ class StopTests(unittest.TestCase):
     def test_stop_all_prunes_stale_state_and_reports_no_running_vms(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = self.make_paths(root)
+            paths = make_paths(root)
             cwd = root / "project"
             cwd.mkdir()
             stale_cwd = root / "stale"
@@ -191,7 +165,7 @@ class StopTests(unittest.TestCase):
     def test_create_delegates_to_backend_and_writes_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = self.make_paths(root)
+            paths = make_paths(root)
             cwd = root / "project"
             cwd.mkdir()
             calls = []
@@ -245,7 +219,7 @@ class StopTests(unittest.TestCase):
     def test_stop_all_only_uses_selected_backend_states(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = self.make_paths(root)
+            paths = make_paths(root)
             cwd = root / "project"
             cwd.mkdir()
             mkosi_cwd = root / "mkosi-project"
@@ -295,7 +269,7 @@ class StopTests(unittest.TestCase):
     ) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = self.make_paths(root)
+            paths = make_paths(root)
             cwd = root / "project"
             cwd.mkdir()
 
@@ -342,7 +316,7 @@ class StopTests(unittest.TestCase):
     def test_podman_already_running_message_uses_container_name(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = self.make_paths(root)
+            paths = make_paths(root)
             cwd = root / "project"
             cwd.mkdir()
 

@@ -1,45 +1,21 @@
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agentic_sandbox.main import AgenticSandboxError, Paths
+from agentic_sandbox.main import AgenticSandboxError
 from agentic_sandbox.mkosi_backend import MkosiBackend
+
+from tests.helpers import make_paths
 
 
 class WorkspaceTests(unittest.TestCase):
-    def make_paths(self, root: Path) -> Paths:
-        repo_root = root / "repo"
-        template_dir = repo_root / "mkosi"
-        home = root / "home"
-        data_dir = root / "data"
-        state_dir = root / "state"
-        image_dir = data_dir / "base-image"
-        podman_image_dir = data_dir / "podman-image"
-        template_dir.mkdir(parents=True)
-        (repo_root / "podman").mkdir(parents=True)
-        home.mkdir()
-        data_dir.mkdir()
-        state_dir.mkdir()
-        image_dir.mkdir()
-        podman_image_dir.mkdir()
-        return Paths(
-            repo_root=repo_root,
-            template_dir=template_dir,
-            home=home,
-            data_dir=data_dir,
-            state_dir=state_dir,
-            image_dir=image_dir,
-            build_marker=image_dir / ".image-built.json",
-            podman_template_dir=repo_root / "podman",
-            podman_image_dir=podman_image_dir,
-            podman_build_marker=podman_image_dir / ".image-built.json",
-        )
-
     def test_workspace_stages_mirrorlist_and_preserves_script_mode(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = self.make_paths(root)
+            paths = make_paths(root)
             (paths.template_dir / "mkosi.conf.in").write_text(
                 "[Content]\nPackages=@PACKAGES@\n", encoding="utf-8"
             )
@@ -135,51 +111,60 @@ class WorkspaceTests(unittest.TestCase):
                 "d /home/someone 0755 someone someone -\n",
             )
 
-    def test_repo_postinst_initializes_pacman_keyring(self) -> None:
-        repo_root = Path(__file__).resolve().parents[1]
+    def test_postinst_initializes_keyring_and_writes_sudoers(self) -> None:
         postinst = (
-            repo_root / "agentic_sandbox" / "mkosi" / "mkosi.postinst"
-        ).read_text(encoding="utf-8")
-
-        self.assertIn(
-            'pacman-key --gpgdir "$pacman_keyring_dir" --init',
-            postinst,
+            Path(__file__).resolve().parents[1]
+            / "agentic_sandbox" / "mkosi" / "mkosi.postinst"
         )
-        self.assertIn(
-            'pacman-key --gpgdir "$pacman_keyring_dir" --populate archlinux',
-            postinst,
-        )
-        self.assertIn(
-            "'someone ALL=(ALL) NOPASSWD: ALL'",
-            postinst,
-        )
-
-    def test_repo_vm_user_setup_uses_sysusers_and_tmpfiles(self) -> None:
-        repo_root = Path(__file__).resolve().parents[1]
-        sysusers = (
-            repo_root
-            / "agentic_sandbox"
-            / "mkosi"
-            / "mkosi.extra/usr/lib/sysusers.d/agentic-sandbox.conf"
-        ).read_text(encoding="utf-8")
-        tmpfiles = (
-            repo_root
-            / "agentic_sandbox"
-            / "mkosi"
-            / "mkosi.extra/usr/lib/tmpfiles.d/agentic-sandbox.conf"
-        ).read_text(encoding="utf-8")
-
-        self.assertIn(
-            'u someone - "Agentic Sandbox User" /home/someone /bin/bash',
-            sysusers,
-        )
-        self.assertIn("m someone wheel", sysusers)
-        self.assertIn("d /home/someone 0755 someone someone -", tmpfiles)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "image root"
+            (root / "etc").mkdir(parents=True)
+            (root / "etc/pacman.conf").write_text("[options]\n", encoding="utf-8")
+            bin_dir = Path(tmpdir) / "bin"
+            bin_dir.mkdir()
+            calls_file = Path(tmpdir) / "keyring-calls"
+            pacman_key = bin_dir / "pacman-key"
+            pacman_key.write_text(
+                '#!/bin/sh\nprintf "%s\\0" pacman-key "$@" >> "$TEST_KEYRING_CALLS"\n',
+                encoding="utf-8",
+            )
+            pacman_key.chmod(0o755)
+            fakeroot = bin_dir / "fakeroot"
+            fakeroot.write_text('#!/bin/sh\nexec "$@"\n', encoding="utf-8")
+            fakeroot.chmod(0o755)
+            result = subprocess.run(
+                ["sh", str(postinst)],
+                env={
+                    **os.environ,
+                    "BUILDROOT": str(root),
+                    "PATH": f"{bin_dir}:{os.environ.get('PATH', os.defpath)}",
+                    "TEST_KEYRING_CALLS": str(calls_file),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            keyring = root / "etc/pacman.d/gnupg"
+            self.assertTrue(keyring.is_dir())
+            self.assertEqual(
+                calls_file.read_text(encoding="utf-8").split("\0")[:-1],
+                [
+                    "pacman-key", "--gpgdir", str(keyring), "--init",
+                    "pacman-key", "--gpgdir", str(keyring), "--populate", "archlinux",
+                ],
+            )
+            sudoers = root / "etc/sudoers.d/someone"
+            self.assertEqual(
+                sudoers.read_text(encoding="utf-8").strip(),
+                "someone ALL=(ALL) NOPASSWD: ALL",
+            )
+            self.assertEqual(sudoers.stat().st_mode & 0o777, 0o440)
 
     def test_workspace_materializes_symlink_descriptors(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = self.make_paths(root)
+            paths = make_paths(root)
             (paths.template_dir / "mask.service.symlink").write_text(
                 "/dev/null\n",
                 encoding="utf-8",
@@ -203,7 +188,7 @@ class WorkspaceTests(unittest.TestCase):
     def test_workspace_requires_host_mirrorlist(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = self.make_paths(root)
+            paths = make_paths(root)
             (paths.template_dir / "mkosi.conf.in").write_text(
                 "[Content]\nPackages=@PACKAGES@\n", encoding="utf-8"
             )

@@ -5,39 +5,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agentic_sandbox.main import AgenticSandboxError, Paths, build_parser, main
+from agentic_sandbox.main import AgenticSandboxError, build_parser, main
+
+from tests.helpers import make_paths
 
 
 class MainTests(unittest.TestCase):
-    def make_paths(self, root: Path) -> Paths:
-        repo_root = root / "repo"
-        template_dir = repo_root / "mkosi"
-        podman_template_dir = repo_root / "podman"
-        home = root / "home"
-        data_dir = root / "data"
-        state_dir = root / "state"
-        image_dir = data_dir / "base-image"
-        podman_image_dir = data_dir / "podman-image"
-        template_dir.mkdir(parents=True)
-        podman_template_dir.mkdir(parents=True)
-        home.mkdir()
-        data_dir.mkdir()
-        state_dir.mkdir()
-        image_dir.mkdir()
-        podman_image_dir.mkdir()
-        return Paths(
-            repo_root=repo_root,
-            template_dir=template_dir,
-            home=home,
-            data_dir=data_dir,
-            state_dir=state_dir,
-            image_dir=image_dir,
-            build_marker=image_dir / ".image-built.json",
-            podman_template_dir=podman_template_dir,
-            podman_image_dir=podman_image_dir,
-            podman_build_marker=podman_image_dir / ".image-built.json",
-        )
-
     def test_parser_requires_backend(self) -> None:
         for command in ("create", "run", "exec", "stop", "rebuild"):
             with self.subTest(command=command):
@@ -58,12 +31,6 @@ class MainTests(unittest.TestCase):
                     args = build_parser().parse_args([option, backend, "create"])
                     self.assertEqual(args.backend, backend)
                     self.assertEqual(args.command, "create")
-
-    def test_parser_accepts_backend_before_subcommand(self) -> None:
-        args = build_parser().parse_args(["--backend", "podman", "run", "--", "uname"])
-        self.assertEqual(args.backend, "podman")
-        self.assertEqual(args.command, "run")
-        self.assertEqual(args.exec_args, ["--", "uname"])
 
     def test_parser_accepts_detached_for_run_and_exec(self) -> None:
         for command in ("run", "exec"):
@@ -170,7 +137,7 @@ class MainTests(unittest.TestCase):
                 self.subTest(backend=backend_name),
                 tempfile.TemporaryDirectory() as tmpdir,
             ):
-                paths = self.make_paths(Path(tmpdir))
+                paths = make_paths(Path(tmpdir))
 
                 class FakeBackend:
                     name = backend_name
@@ -221,7 +188,7 @@ class MainTests(unittest.TestCase):
             with (
                 patch(
                     "agentic_sandbox.main.Paths.detect",
-                    return_value=self.make_paths(Path(tmpdir)),
+                    return_value=make_paths(Path(tmpdir)),
                 ),
                 patch("agentic_sandbox.mkosi_backend.MkosiBackend.create") as create,
                 patch("sys.stderr", stderr),
@@ -265,7 +232,7 @@ class MainTests(unittest.TestCase):
             with (
                 patch(
                     "agentic_sandbox.main.Paths.detect",
-                    return_value=self.make_paths(Path(tmpdir)),
+                    return_value=make_paths(Path(tmpdir)),
                 ),
                 patch("agentic_sandbox.mkosi_backend.MkosiBackend.create") as create,
                 patch("sys.stderr", stderr),
@@ -308,6 +275,13 @@ class MainTests(unittest.TestCase):
             "--graphics is only supported by the podman backend", stderr.getvalue()
         )
 
+    def test_parser_accepts_quiet_aliases(self) -> None:
+        for command in ("create", "run"):
+            for option in ("-q", "--quiet"):
+                with self.subTest(command=command, option=option):
+                    args = build_parser().parse_args(["-b", "podman", command, option])
+                    self.assertTrue(args.quiet)
+
     def test_parser_forwards_quiet_flags_after_separator(self) -> None:
         for command, attribute in (("create", "backend_args"), ("run", "exec_args")):
             with self.subTest(command=command):
@@ -321,14 +295,14 @@ class MainTests(unittest.TestCase):
     def test_quiet_suppresses_status_and_preserves_command_output(self) -> None:
         for command in ("create", "run"):
             for running in (False, True):
-                for quiet_args in ([], ["-q"], ["--quiet"]):
+                for quiet_args in ([], ["--quiet"]):
                     with (
                         self.subTest(
                             command=command, running=running, flags=quiet_args
                         ),
                         tempfile.TemporaryDirectory() as tmpdir,
                     ):
-                        paths = self.make_paths(Path(tmpdir))
+                        paths = make_paths(Path(tmpdir))
                         calls = []
 
                         class FakeBackend:
@@ -427,7 +401,7 @@ class MainTests(unittest.TestCase):
 
     def test_main_dispatches_selected_backend(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            paths = self.make_paths(Path(tmpdir))
+            paths = make_paths(Path(tmpdir))
             selected = []
 
             class FakeApp:

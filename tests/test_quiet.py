@@ -21,7 +21,7 @@ class QuietTests(unittest.TestCase):
     def test_quiet_disables_spinners_and_preserves_command_output(self) -> None:
         for backend_type in (MkosiBackend, PodmanBackend):
             for command in ("create", "run"):
-                for flags in ([], ["-q"], ["--quiet"]):
+                for flags in ([], ["--quiet"]):
                     with (
                         self.subTest(
                             backend=backend_type.name, command=command, flags=flags

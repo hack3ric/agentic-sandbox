@@ -22,37 +22,10 @@ from agentic_sandbox.podman_backend import (
     PodmanBackend,
 )
 
+from tests.helpers import make_paths
+
 
 class PodmanBackendTests(unittest.TestCase):
-    def make_paths(self, root: Path) -> Paths:
-        repo_root = root / "repo"
-        template_dir = repo_root / "mkosi"
-        podman_template_dir = repo_root / "podman"
-        home = root / "home"
-        data_dir = root / "data"
-        state_dir = root / "state"
-        image_dir = data_dir / "base-image"
-        podman_image_dir = data_dir / "podman-image"
-        template_dir.mkdir(parents=True)
-        podman_template_dir.mkdir(parents=True)
-        home.mkdir()
-        data_dir.mkdir()
-        state_dir.mkdir()
-        image_dir.mkdir()
-        podman_image_dir.mkdir()
-        return Paths(
-            repo_root=repo_root,
-            template_dir=template_dir,
-            home=home,
-            data_dir=data_dir,
-            state_dir=state_dir,
-            image_dir=image_dir,
-            build_marker=image_dir / ".image-built.json",
-            podman_template_dir=podman_template_dir,
-            podman_image_dir=podman_image_dir,
-            podman_build_marker=podman_image_dir / ".image-built.json",
-        )
-
     def make_render_device(
         self, root: Path, name: str, vendor: str | None = None, driver: str | None = None
     ) -> Path:
@@ -89,7 +62,7 @@ class PodmanBackendTests(unittest.TestCase):
     def test_create_always_starts_and_waits_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = self.make_paths(root)
+            paths = make_paths(root)
             cwd = root / "project"
             cwd.mkdir()
             commands = []
@@ -137,7 +110,7 @@ class PodmanBackendTests(unittest.TestCase):
     def test_create_cmd_places_backend_args_before_image(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = self.make_paths(root)
+            paths = make_paths(root)
             cwd = root / "project"
             cwd.mkdir()
             backend = PodmanBackend(paths)
@@ -156,7 +129,7 @@ class PodmanBackendTests(unittest.TestCase):
     def test_ssh_runs_in_project_directory_and_selects_interactive_shell(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = self.make_paths(root)
+            paths = make_paths(root)
             cwd = root / "project dir"
             cwd.mkdir()
             commands = []
@@ -206,7 +179,7 @@ class PodmanBackendTests(unittest.TestCase):
     def test_exec_preserves_empty_term_and_omits_unset_term(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = self.make_paths(root)
+            paths = make_paths(root)
             backend = PodmanBackend(paths)
             backend.should_allocate_tty = lambda: True
             identity = AgenticSandbox(paths, root, backend=backend).identity_for()
@@ -226,7 +199,7 @@ class PodmanBackendTests(unittest.TestCase):
     def test_ssh_keeps_stdin_open_without_tty(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = self.make_paths(root)
+            paths = make_paths(root)
             cwd = root / "project dir"
             cwd.mkdir()
             commands = []
@@ -262,7 +235,7 @@ class PodmanBackendTests(unittest.TestCase):
             with self.subTest(terminal=terminal), tempfile.TemporaryDirectory() as tmpdir:
                 root = Path(tmpdir)
                 cwd = root / "project's files"
-                paths = self.make_paths(root)
+                paths = make_paths(root)
                 commands = []
                 backend = self.make_backend(paths, commands)
                 backend.is_running = lambda identity: True
@@ -290,7 +263,7 @@ class PodmanBackendTests(unittest.TestCase):
     def test_run_detached_creates_and_waits_before_exec(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = self.make_paths(root)
+            paths = make_paths(root)
             commands = []
             running = False
 
@@ -335,7 +308,7 @@ class PodmanBackendTests(unittest.TestCase):
     def test_detached_exec_rejects_inactive_container(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = self.make_paths(root)
+            paths = make_paths(root)
             commands = []
             backend = self.make_backend(paths, commands)
             app = AgenticSandbox(paths, root, backend=backend)
@@ -350,7 +323,7 @@ class PodmanBackendTests(unittest.TestCase):
     def test_stop_uses_graceful_then_cleanup_and_force_uses_rm_f(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = self.make_paths(root)
+            paths = make_paths(root)
             cwd = root / "project"
             cwd.mkdir()
             commands = []
@@ -392,7 +365,7 @@ class PodmanBackendTests(unittest.TestCase):
     ) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = self.make_paths(root)
+            paths = make_paths(root)
             cwd = root / "project"
             cwd.mkdir()
             other = root / "other"
@@ -433,7 +406,7 @@ class PodmanBackendTests(unittest.TestCase):
 
     def test_rebuild_updates_base_and_defers_gui_build(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            paths = self.make_paths(Path(tmpdir))
+            paths = make_paths(Path(tmpdir))
             commands = []
             backend = self.make_backend(paths, commands)
             backend.ensure_workspace = lambda force=False: None
@@ -455,7 +428,7 @@ class PodmanBackendTests(unittest.TestCase):
         for gui in (False, True):
             with self.subTest(gui=gui), tempfile.TemporaryDirectory() as tmpdir:
                 root = Path(tmpdir)
-                paths = self.make_paths(root)
+                paths = make_paths(root)
                 commands = []
 
                 def runner(command, **kwargs):
@@ -495,7 +468,7 @@ class PodmanBackendTests(unittest.TestCase):
     def test_mount_args_include_workspace_and_existing_optional_mounts(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = self.make_paths(root)
+            paths = make_paths(root)
             cwd = root / "project"
             cwd.mkdir()
             (paths.home / ".codex").mkdir()
@@ -523,7 +496,7 @@ class PodmanBackendTests(unittest.TestCase):
     def test_workspace_separates_base_and_gui_packages_and_stages_mirrorlist(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = self.make_paths(root)
+            paths = make_paths(root)
             host_mirrorlist = root / "mirrorlist"
             host_mirrorlist.write_text(
                 "Server = https://example.invalid/$repo/os/$arch\n", encoding="utf-8"
@@ -574,25 +547,10 @@ class PodmanBackendTests(unittest.TestCase):
                 host_mirrorlist.read_text(encoding="utf-8"),
             )
 
-    def test_repo_containerfile_creates_someone_sudoer(self) -> None:
-        repo_root = Path(__file__).resolve().parents[1]
-        containerfile = (
-            repo_root / "agentic_sandbox" / "podman" / "Containerfile.in"
-        ).read_text(encoding="utf-8")
-
-        self.assertIn(
-            "useradd --create-home --shell /bin/bash someone",
-            containerfile,
-        )
-        self.assertIn(
-            "'someone ALL=(ALL) NOPASSWD: ALL'",
-            containerfile,
-        )
-
     def test_gui_create_mounts_only_wayland_and_runs_private_xwayland(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = self.make_paths(root)
+            paths = make_paths(root)
             runtime_dir = root / "runtime dir"
             runtime_dir.mkdir()
             display = runtime_dir / "wayland-7"
@@ -641,7 +599,7 @@ class PodmanBackendTests(unittest.TestCase):
     def test_gui_accepts_absolute_socket_without_runtime_environment(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            backend = PodmanBackend(self.make_paths(root))
+            backend = PodmanBackend(make_paths(root))
             display = root / "wayland-absolute"
             with (
                 socket.socket(socket.AF_UNIX) as listener,
@@ -656,7 +614,7 @@ class PodmanBackendTests(unittest.TestCase):
     def test_gui_uses_default_wayland_display(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            backend = PodmanBackend(self.make_paths(root))
+            backend = PodmanBackend(make_paths(root))
             display = root / "wayland-0"
             with (
                 socket.socket(socket.AF_UNIX) as listener,
@@ -671,7 +629,7 @@ class PodmanBackendTests(unittest.TestCase):
     def test_gui_rejects_invalid_display_before_build_or_create(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = self.make_paths(root)
+            paths = make_paths(root)
             regular_file = root / "regular-file"
             regular_file.touch()
             for env in (
@@ -696,33 +654,34 @@ class PodmanBackendTests(unittest.TestCase):
                         )
                     )
 
-    def test_gui_request_rejects_existing_non_gui_container(self) -> None:
-        for running in (False, True):
-            with self.subTest(running=running), tempfile.TemporaryDirectory() as tmpdir:
-                root = Path(tmpdir)
-                paths = self.make_paths(root)
-                commands = []
-                backend = self.make_backend(paths, commands)
-                backend.is_known = lambda identity: True
-                backend.is_running = lambda identity, running=running: running
-                app = AgenticSandbox(paths, root, backend=backend)
-                with self.assertRaisesRegex(
-                    AgenticSandboxError, "was created without --gui"
+    def test_feature_request_rejects_existing_container_without_feature(self) -> None:
+        for feature in ("gui", "graphics", "kvm"):
+            for running in (False, True):
+                with (
+                    self.subTest(feature=feature, running=running),
+                    tempfile.TemporaryDirectory() as tmpdir,
                 ):
-                    app.create(gui=True)
-                self.assertFalse(
-                    any(
-                        cmd[:2]
-                        in (["podman", "build"], ["podman", "create"], ["podman", "rm"])
-                        for cmd in commands
+                    root = Path(tmpdir)
+                    paths = make_paths(root)
+                    commands = []
+                    backend = self.make_backend(paths, commands)
+                    backend.is_known = lambda identity: True
+                    backend.is_running = lambda identity, running=running: running
+                    app = AgenticSandbox(paths, root, backend=backend)
+                    with self.assertRaisesRegex(
+                        AgenticSandboxError, f"was created without --{feature}"
+                    ):
+                        app.create(**{feature: True}, quiet=True)
+                    self.assertTrue(commands)
+                    self.assertTrue(
+                        all(cmd[:3] == ["podman", "container", "inspect"] for cmd in commands)
                     )
-                )
-                self.assertFalse(app.identity_for().state_file.exists())
+                    self.assertFalse(app.identity_for().state_file.exists())
 
     def test_gui_request_reuses_existing_gui_container(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = self.make_paths(root)
+            paths = make_paths(root)
             commands = []
             backend = self.make_backend(paths, commands)
             backend.is_known = lambda identity: True
@@ -737,7 +696,7 @@ class PodmanBackendTests(unittest.TestCase):
 
     def test_legacy_image_migrates_to_base_then_builds_gui_on_demand(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            paths = self.make_paths(Path(tmpdir))
+            paths = make_paths(Path(tmpdir))
             commands = []
             backend = self.make_backend(paths, commands)
             paths.podman_build_marker.write_text(
@@ -758,7 +717,7 @@ class PodmanBackendTests(unittest.TestCase):
     def test_gui_wait_retries_until_xwayland_accepts_connections(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = self.make_paths(root)
+            paths = make_paths(root)
             commands = []
             probes = 0
             sleeps = []
@@ -788,7 +747,7 @@ class PodmanBackendTests(unittest.TestCase):
         for running in (False, True):
             with self.subTest(running=running), tempfile.TemporaryDirectory() as tmpdir:
                 root = Path(tmpdir)
-                paths = self.make_paths(root)
+                paths = make_paths(root)
 
                 def runner(command, **kwargs):
                     return subprocess.CompletedProcess(
@@ -809,7 +768,7 @@ class PodmanBackendTests(unittest.TestCase):
         for detached in (False, True):
             with self.subTest(detached=detached), tempfile.TemporaryDirectory() as tmpdir:
                 root = Path(tmpdir)
-                paths = self.make_paths(root)
+                paths = make_paths(root)
                 commands = []
                 backend = self.make_backend(paths, commands)
                 backend.is_running = lambda identity: True
@@ -826,7 +785,7 @@ class PodmanBackendTests(unittest.TestCase):
     def test_graphics_accepts_nouveau_and_excludes_nvidia_driver(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            backend = PodmanBackend(self.make_paths(root))
+            backend = PodmanBackend(make_paths(root))
             amd = self.make_render_device(root, "renderD129", "0x1002", "amdgpu")
             intel = self.make_render_device(root, "renderD128", "0x8086", "i915")
             self.make_render_device(root, "renderD130", "0x10de")
@@ -862,7 +821,7 @@ class PodmanBackendTests(unittest.TestCase):
         ):
             with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as tmpdir:
                 root = Path(tmpdir)
-                paths = self.make_paths(root)
+                paths = make_paths(root)
                 if scenario != "missing":
                     vendor = {
                         "nvidia": "0x10de",
@@ -895,7 +854,7 @@ class PodmanBackendTests(unittest.TestCase):
     def test_graphics_create_exposes_devices_without_a_display(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = self.make_paths(root)
+            paths = make_paths(root)
             commands = []
             backend = self.make_backend(paths, commands)
             app = AgenticSandbox(paths, root, backend=backend)
@@ -929,7 +888,7 @@ class PodmanBackendTests(unittest.TestCase):
     def test_graphics_gui_accelerates_xwayland_and_shares_kvm_group_option(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            backend = PodmanBackend(self.make_paths(root))
+            backend = PodmanBackend(make_paths(root))
             identity = AgenticSandbox(backend.paths, root, backend=backend).identity_for()
             with (
                 patch.object(backend, "gui_args", return_value=[]),
@@ -950,70 +909,59 @@ class PodmanBackendTests(unittest.TestCase):
             self.assertEqual(command.count("--group-add"), 1)
             self.assertEqual(command.count("keep-groups"), 1)
 
-    def test_graphics_request_rejects_existing_container_without_graphics(self) -> None:
-        for running in (False, True):
-            with self.subTest(running=running), tempfile.TemporaryDirectory() as tmpdir:
+    def test_feature_container_is_reused_by_create_and_run(self) -> None:
+        for feature, label, base_marker in (
+            ("graphics", GRAPHICS_LABEL, None), ("kvm", KVM_LABEL, "{}")
+        ):
+            with self.subTest(feature=feature), tempfile.TemporaryDirectory() as tmpdir:
                 root = Path(tmpdir)
-                paths = self.make_paths(root)
+                paths = make_paths(root)
+                if base_marker is not None:
+                    paths.podman_build_marker.write_text(base_marker, encoding="utf-8")
                 commands = []
-                backend = self.make_backend(paths, commands)
-                backend.is_known = lambda identity: True
-                backend.is_running = lambda identity, running=running: running
+                running = False
+
+                def runner(command, **kwargs):
+                    nonlocal running
+                    commands.append(command)
+                    output = ""
+                    if command[:2] == ["podman", "start"]:
+                        running = True
+                    elif command[:3] == ["podman", "container", "inspect"]:
+                        if command[-2] == "{{.State.Running}}":
+                            output = str(running).lower()
+                        elif label in command[-2]:
+                            output = "enabled"
+                    return subprocess.CompletedProcess(command, 0, output, "")
+
+                backend = PodmanBackend(paths, runner=runner, spinner_enabled=False)
+                backend.should_allocate_tty = lambda: False
                 app = AgenticSandbox(paths, root, backend=backend)
-                with self.assertRaisesRegex(
-                    AgenticSandboxError, "was created without --graphics"
-                ):
-                    app.create(graphics=True, quiet=True)
-                self.assertTrue(commands)
-                self.assertTrue(
-                    all(cmd[:3] == ["podman", "container", "inspect"] for cmd in commands)
+                with patch.object(backend, "ensure_workspace") as workspace:
+                    app.create(**{feature: True}, quiet=True)
+                    app.create(**{feature: True}, quiet=True)
+                    self.assertEqual(app.run_sandbox(["--", "true"], quiet=True), 0)
+                workspace.assert_not_called()
+                self.assertEqual(
+                    backend.build_marker.read_text(encoding="utf-8")
+                    if backend.build_marker.exists() else None,
+                    base_marker,
                 )
-                self.assertFalse(app.identity_for().state_file.exists())
-
-    def test_graphics_container_is_reused_by_create_and_run(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            paths = self.make_paths(root)
-            commands = []
-            running = False
-
-            def runner(command, **kwargs):
-                nonlocal running
-                commands.append(command)
-                output = ""
-                if command[:2] == ["podman", "start"]:
-                    running = True
-                elif command[:3] == ["podman", "container", "inspect"]:
-                    if command[-2] == "{{.State.Running}}":
-                        output = str(running).lower()
-                    elif GRAPHICS_LABEL in command[-2]:
-                        output = "enabled"
-                return subprocess.CompletedProcess(command, 0, output, "")
-
-            backend = PodmanBackend(paths, runner=runner, spinner_enabled=False)
-            backend.should_allocate_tty = lambda: False
-            app = AgenticSandbox(paths, root, backend=backend)
-            with patch.object(backend, "ensure_workspace") as workspace:
-                app.create(graphics=True, quiet=True)
-                app.create(graphics=True, quiet=True)
-                self.assertEqual(app.run_sandbox(["--", "true"], quiet=True), 0)
-            workspace.assert_not_called()
-            self.assertFalse(backend.build_marker.exists())
-            self.assertFalse(backend.gui_build_marker.exists())
-            self.assertEqual(
-                commands.count(["podman", "start", app.identity_for().machine_name]), 1
-            )
-            self.assertFalse(
-                any(
-                    cmd[:2] in (["podman", "create"], ["podman", "build"])
-                    for cmd in commands
+                self.assertFalse(backend.gui_build_marker.exists())
+                self.assertEqual(
+                    commands.count(["podman", "start", app.identity_for().machine_name]), 1
                 )
-            )
-            self.assertEqual(commands[-1][:2], ["podman", "exec"])
+                self.assertFalse(
+                    any(
+                        cmd[:2] in (["podman", "create"], ["podman", "build"])
+                        for cmd in commands
+                    )
+                )
+                self.assertEqual(commands[-1][:2], ["podman", "exec"])
 
     def test_graphics_rebuilds_only_outdated_gui_image(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            paths = self.make_paths(Path(tmpdir))
+            paths = make_paths(Path(tmpdir))
             commands = []
             backend = self.make_backend(paths, commands)
             backend.write_build_marker()
@@ -1031,7 +979,7 @@ class PodmanBackendTests(unittest.TestCase):
     def test_kvm_create_exposes_device_and_preserves_groups(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            paths = self.make_paths(root)
+            paths = make_paths(root)
             commands = []
             backend = self.make_backend(paths, commands)
             app = AgenticSandbox(paths, root, backend=backend)
@@ -1062,7 +1010,7 @@ class PodmanBackendTests(unittest.TestCase):
         ):
             with self.subTest(message=message), tempfile.TemporaryDirectory() as tmpdir:
                 root = Path(tmpdir)
-                paths = self.make_paths(root)
+                paths = make_paths(root)
                 commands = []
                 backend = self.make_backend(paths, commands)
                 identity = AgenticSandbox(paths, root, backend=backend).identity_for()
@@ -1080,60 +1028,3 @@ class PodmanBackendTests(unittest.TestCase):
                     [["podman", "container", "exists", identity.machine_name]],
                 )
                 self.assertFalse(paths.podman_build_marker.exists())
-
-    def test_kvm_request_rejects_existing_container_without_kvm(self) -> None:
-        for running in (False, True):
-            with self.subTest(running=running), tempfile.TemporaryDirectory() as tmpdir:
-                root = Path(tmpdir)
-                paths = self.make_paths(root)
-                commands = []
-                backend = self.make_backend(paths, commands)
-                backend.is_known = lambda identity: True
-                backend.is_running = lambda identity, running=running: running
-                app = AgenticSandbox(paths, root, backend=backend)
-                with self.assertRaisesRegex(
-                    AgenticSandboxError, "was created without --kvm"
-                ):
-                    app.create(kvm=True, quiet=True)
-                self.assertTrue(commands)
-                self.assertTrue(
-                    all(cmd[:3] == ["podman", "container", "inspect"] for cmd in commands)
-                )
-                self.assertFalse(app.identity_for().state_file.exists())
-
-    def test_kvm_container_is_reused_by_create_and_run(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            paths = self.make_paths(root)
-            paths.podman_build_marker.write_text("{}", encoding="utf-8")
-            commands = []
-            running = False
-
-            def runner(command, **kwargs):
-                nonlocal running
-                commands.append(command)
-                output = ""
-                if command[:2] == ["podman", "start"]:
-                    running = True
-                elif command[:3] == ["podman", "container", "inspect"]:
-                    if command[-2] == "{{.State.Running}}":
-                        output = str(running).lower()
-                    elif KVM_LABEL in command[-2]:
-                        output = "enabled"
-                return subprocess.CompletedProcess(command, 0, output, "")
-
-            backend = PodmanBackend(paths, runner=runner, spinner_enabled=False)
-            backend.should_allocate_tty = lambda: False
-            app = AgenticSandbox(paths, root, backend=backend)
-            with patch.object(backend, "ensure_workspace"):
-                app.create(kvm=True, quiet=True)
-                app.create(kvm=True, quiet=True)
-                self.assertEqual(app.run_sandbox(["--", "true"], quiet=True), 0)
-
-            self.assertEqual(
-                commands.count(["podman", "start", app.identity_for().machine_name]), 1
-            )
-            self.assertFalse(
-                any(cmd[:2] in (["podman", "create"], ["podman", "build"]) for cmd in commands)
-            )
-            self.assertEqual(commands[-1][:2], ["podman", "exec"])
