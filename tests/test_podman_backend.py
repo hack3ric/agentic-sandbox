@@ -1,5 +1,6 @@
 import json
 import os
+import shlex
 import socket
 import subprocess
 import tempfile
@@ -215,6 +216,96 @@ class PodmanBackendTests(unittest.TestCase):
             command = next(cmd for cmd in commands if cmd[:2] == ["podman", "exec"])
             self.assertNotIn("-it", command)
             self.assertTrue(command[-1].endswith(f"cd '{cwd}' && exec pwd"))
+
+    def test_detached_exec_preserves_arguments_and_never_allocates_tty(self) -> None:
+        for terminal in (False, True):
+            with self.subTest(terminal=terminal), tempfile.TemporaryDirectory() as tmpdir:
+                root = Path(tmpdir)
+                cwd = root / "project's files"
+                paths = self.make_paths(root)
+                commands = []
+                backend = self.make_backend(paths, commands)
+                backend.is_running = lambda identity: True
+                backend.gui_enabled = lambda identity: False
+                backend.should_allocate_tty = lambda: terminal
+                app = AgenticSandbox(paths, cwd, backend=backend)
+                forwarded = ["printf", "%s", "two words", "", "*.py", "$HOME", "-d"]
+
+                with patch.dict(os.environ, {"TERM": "xterm-256color"}):
+                    self.assertEqual(
+                        app.exec_in_sandbox(["--", *forwarded], detached=True), 0
+                    )
+
+                command = commands[-1]
+                container_index = command.index(app.identity_for().machine_name)
+                self.assertEqual(
+                    command[:container_index],
+                    ["podman", "exec", "--workdir", str(cwd),
+                     "--env", "TERM=xterm-256color", "--detach"],
+                )
+                self.assertEqual(command[container_index + 1:-1], ["/bin/sh", "-lc"])
+                script = shlex.split(command[-1])
+                self.assertEqual(script[:4], ["cd", str(cwd), "&&", "exec"])
+                self.assertEqual(script[4:], forwarded)
+
+    def test_run_detached_creates_and_waits_before_exec(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = self.make_paths(root)
+            commands = []
+            running = False
+
+            def runner(command, **kwargs):
+                nonlocal running
+                commands.append(command)
+                output = ""
+                status = 0
+                if command[:3] == ["podman", "container", "exists"]:
+                    status = 1
+                elif command[:2] == ["podman", "start"]:
+                    running = True
+                elif command[:3] == ["podman", "container", "inspect"]:
+                    if command[-2] == "{{.State.Running}}":
+                        output = str(running).lower()
+                elif command[:2] == ["podman", "exec"]:
+                    status = 7
+                return subprocess.CompletedProcess(command, status, output, "")
+
+            backend = PodmanBackend(paths, runner=runner, error_type=AgenticSandboxError)
+            backend.wait_for_container = lambda identity: commands.append(["wait"])
+            app = AgenticSandbox(paths, root, backend=backend)
+
+            self.assertEqual(
+                app.run_sandbox(["--", "sleep", "10"], quiet=True, detached=True), 7
+            )
+
+            operations = [
+                command[:2] for command in commands
+                if command[:2] in (["podman", "create"], ["podman", "start"], ["podman", "exec"])
+                or command == ["wait"]
+            ]
+            self.assertEqual(
+                operations,
+                [["podman", "create"], ["podman", "start"], ["wait"], ["podman", "exec"]],
+            )
+            self.assertIn("--detach", commands[-1])
+            self.assertNotIn("-it", commands[-1])
+            self.assertTrue(app.identity_for().state_file.exists())
+
+    def test_detached_exec_rejects_inactive_container(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = self.make_paths(root)
+            commands = []
+            backend = self.make_backend(paths, commands)
+            app = AgenticSandbox(paths, root, backend=backend)
+
+            with self.assertRaisesRegex(AgenticSandboxError, "not active"):
+                app.exec_in_sandbox(["sleep", "10"], detached=True)
+
+            self.assertTrue(
+                all(command[:3] == ["podman", "container", "inspect"] for command in commands)
+            )
 
     def test_stop_uses_graceful_then_cleanup_and_force_uses_rm_f(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -675,20 +766,22 @@ class PodmanBackendTests(unittest.TestCase):
                     backend.wait_for_container(identity, timeout_seconds=0)
 
     def test_exec_waits_for_gui_from_container_configuration(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            paths = self.make_paths(root)
-            commands = []
-            backend = self.make_backend(paths, commands)
-            backend.is_running = lambda identity: True
-            backend.gui_enabled = lambda identity: True
-            backend.should_allocate_tty = lambda: False
-            backend.wait_for_container = lambda identity: commands.append(["wait"])
-            identity = AgenticSandbox(paths, root, backend=backend).identity_for()
-            backend.ssh(identity, root, ["--", "example-app"])
-            self.assertEqual(commands[0], ["wait"])
-            self.assertEqual(commands[1][:2], ["podman", "exec"])
-            self.assertTrue(commands[1][-1].endswith("exec example-app"))
+        for detached in (False, True):
+            with self.subTest(detached=detached), tempfile.TemporaryDirectory() as tmpdir:
+                root = Path(tmpdir)
+                paths = self.make_paths(root)
+                commands = []
+                backend = self.make_backend(paths, commands)
+                backend.is_running = lambda identity: True
+                backend.gui_enabled = lambda identity: True
+                backend.should_allocate_tty = lambda: False
+                backend.wait_for_container = lambda identity: commands.append(["wait"])
+                identity = AgenticSandbox(paths, root, backend=backend).identity_for()
+                backend.ssh(identity, root, ["--", "example-app"], detached=detached)
+                self.assertEqual(commands[0], ["wait"])
+                self.assertEqual(commands[1][:2], ["podman", "exec"])
+                self.assertEqual("--detach" in commands[1], detached)
+                self.assertTrue(commands[1][-1].endswith("exec example-app"))
 
     def test_graphics_accepts_nouveau_and_excludes_nvidia_driver(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

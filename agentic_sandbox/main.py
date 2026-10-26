@@ -208,14 +208,31 @@ class AgenticSandbox:
         if not quiet:
             print(f"created {self.display_name(identity)}")
 
-    def run_sandbox(self, extra_args: Sequence[str], quiet: bool = False) -> int:
+    def run_sandbox(
+        self, extra_args: Sequence[str], quiet: bool = False, detached: bool = False
+    ) -> int:
+        if detached:
+            self.validate_detached_command(extra_args)
         self.create(wait=True, quiet=quiet)
-        return self.exec_in_sandbox(extra_args)
+        return self.exec_in_sandbox(extra_args, detached=detached)
 
-    def exec_in_sandbox(self, extra_args: Sequence[str]) -> int:
+    def exec_in_sandbox(
+        self, extra_args: Sequence[str], detached: bool = False
+    ) -> int:
+        if detached:
+            self.validate_detached_command(extra_args)
         identity = self.identity_for()
         self.prune_stale_state(identity)
-        return self.backend.ssh(identity, identity.cwd, extra_args)
+        return self.backend.ssh(
+            identity, identity.cwd, extra_args, **({"detached": True} if detached else {})
+        )
+
+    def validate_detached_command(self, extra_args: Sequence[str]) -> None:
+        if self.backend_name != "podman":
+            raise AgenticSandboxError("--detached is only supported by the podman backend")
+        command = extra_args[1:] if extra_args and extra_args[0] == "--" else extra_args
+        if not command or not command[0]:
+            raise AgenticSandboxError("--detached requires a command")
 
     def stop(
         self,
@@ -442,12 +459,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="suppress agentic-sandbox status messages and spinners",
     )
-    run_parser.add_argument("exec_args", nargs=argparse.REMAINDER)
     exec_parser = subparsers.add_parser(
         "exec",
         help="execute a command or open a shell in the sandbox for the current directory",
     )
-    exec_parser.add_argument("exec_args", nargs=argparse.REMAINDER)
+    for command_parser in (run_parser, exec_parser):
+        command_parser.add_argument(
+            "-d",
+            "--detached",
+            action="store_true",
+            help="run a command in the background without attaching (podman only)",
+        )
+        command_parser.add_argument("exec_args", nargs=argparse.REMAINDER)
     stop_parser = subparsers.add_parser(
         "stop", help="stop the sandbox for the current directory"
     )
@@ -492,9 +515,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return 0
         if args.command == "run":
-            return app.run_sandbox(args.exec_args, quiet=args.quiet)
+            return app.run_sandbox(
+                args.exec_args, quiet=args.quiet, detached=args.detached
+            )
         if args.command == "exec":
-            return app.exec_in_sandbox(args.exec_args)
+            return app.exec_in_sandbox(args.exec_args, detached=args.detached)
         if args.command == "stop":
             app.stop(all_sandboxes=args.all, force=args.force)
             return 0

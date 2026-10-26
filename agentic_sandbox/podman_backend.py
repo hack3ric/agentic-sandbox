@@ -99,12 +99,16 @@ class PodmanBackend(Backend):
     def wait_until_ready(self, identity) -> None:
         self.wait_for_container(identity)
 
-    def ssh(self, identity, cwd: Path, extra_args: Sequence[str]) -> int:
+    def ssh(
+        self, identity, cwd: Path, extra_args: Sequence[str], *, detached: bool = False
+    ) -> int:
         if not self.is_running(identity):
             raise self.error_type(f"{identity.unit_name} is not active")
         if self.gui_enabled(identity):
             self.wait_for_container(identity)
-        return self.run(self.exec_cmd(identity, cwd, extra_args)).returncode
+        return self.run(
+            self.exec_cmd(identity, cwd, extra_args, detached=detached)
+        ).returncode
 
     def stop(
         self,
@@ -396,15 +400,21 @@ class PodmanBackend(Backend):
                 "(stopping removes the container's writable layer)"
             )
 
-    def exec_cmd(self, identity, cwd: Path, extra_args: Sequence[str]) -> list[str]:
+    def exec_cmd(
+        self, identity, cwd: Path, extra_args: Sequence[str], *, detached: bool = False
+    ) -> list[str]:
         forwarded = list(extra_args)
         if forwarded and forwarded[0] == "--":
             forwarded = forwarded[1:]
+        if detached and (not forwarded or not forwarded[0]):
+            raise self.error_type("--detached requires a command")
         command = ["podman", "exec", "--workdir", str(cwd)]
         term = os.environ.get("TERM")
         if term is not None:
             command.extend(["--env", f"TERM={term}"])
-        if not forwarded or self.should_allocate_tty():
+        if detached:
+            command.append("--detach")
+        elif not forwarded or self.should_allocate_tty():
             command.append("-it")
         command.append(identity.machine_name)
         if not forwarded:

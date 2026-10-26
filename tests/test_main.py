@@ -65,6 +65,91 @@ class MainTests(unittest.TestCase):
         self.assertEqual(args.command, "run")
         self.assertEqual(args.exec_args, ["--", "uname"])
 
+    def test_parser_accepts_detached_for_run_and_exec(self) -> None:
+        for command in ("run", "exec"):
+            for flags, expected in (([], False), (["-d"], True), (["--detached"], True)):
+                with self.subTest(command=command, flags=flags):
+                    args = build_parser().parse_args(
+                        ["-b", "podman", command, *flags, "--", "sleep", "10"]
+                    )
+                    self.assertEqual(args.detached, expected)
+                    self.assertEqual(args.exec_args, ["--", "sleep", "10"])
+        args = build_parser().parse_args(["-b", "podman", "run", "-qd", "sleep", "10"])
+        self.assertTrue(args.quiet)
+        self.assertTrue(args.detached)
+
+    def test_parser_preserves_detached_flags_in_command_arguments(self) -> None:
+        for command in ("run", "exec"):
+            for forwarded in (
+                ["--", "-d", "--detached"],
+                ["example", "-d", "--detached"],
+            ):
+                with self.subTest(command=command, forwarded=forwarded):
+                    args = build_parser().parse_args(
+                        ["-b", "podman", command, *forwarded]
+                    )
+                    self.assertFalse(args.detached)
+                    self.assertEqual(args.exec_args, forwarded)
+
+    def test_detached_rejects_mkosi_before_lifecycle_operations(self) -> None:
+        for command in ("run", "exec"):
+            with (
+                self.subTest(command=command),
+                patch("agentic_sandbox.main.Paths.detect"),
+                patch("agentic_sandbox.main.AgenticSandbox.create") as create,
+                patch("agentic_sandbox.main.AgenticSandbox.prune_stale_state") as prune,
+                patch("subprocess.run") as runner,
+                patch("sys.stderr", io.StringIO()) as stderr,
+            ):
+                self.assertEqual(
+                    main(["-b", "mkosi", command, "-d", "--", "sleep", "10"]), 1
+                )
+                create.assert_not_called()
+                prune.assert_not_called()
+                runner.assert_not_called()
+                self.assertIn(
+                    "--detached is only supported by the podman backend",
+                    stderr.getvalue(),
+                )
+
+    def test_detached_requires_command_before_lifecycle_operations(self) -> None:
+        for command in ("run", "exec"):
+            for forwarded in ([], ["--"], [""], ["--", ""]):
+                with (
+                    self.subTest(command=command, forwarded=forwarded),
+                    patch("agentic_sandbox.main.Paths.detect"),
+                    patch("agentic_sandbox.main.AgenticSandbox.create") as create,
+                    patch("agentic_sandbox.main.AgenticSandbox.prune_stale_state") as prune,
+                    patch("subprocess.run") as runner,
+                    patch("sys.stderr", io.StringIO()) as stderr,
+                ):
+                    self.assertEqual(
+                        main(["-b", "podman", command, "--detached", *forwarded]), 1
+                    )
+                    create.assert_not_called()
+                    prune.assert_not_called()
+                    runner.assert_not_called()
+                    self.assertIn("--detached requires a command", stderr.getvalue())
+
+    def test_main_passes_detached_to_run_and_exec(self) -> None:
+        for command, method in (("run", "run_sandbox"), ("exec", "exec_in_sandbox")):
+            for option in ("-d", "--detached"):
+                with (
+                    self.subTest(command=command, option=option),
+                    patch("agentic_sandbox.main.Paths.detect"),
+                    patch("agentic_sandbox.main.make_backend"),
+                    patch(
+                        f"agentic_sandbox.main.AgenticSandbox.{method}", return_value=7
+                    ) as execute,
+                ):
+                    self.assertEqual(
+                        main(["-b", "podman", command, option, "--", "sleep", "10"]), 7
+                    )
+                    options = {"detached": True}
+                    if command == "run":
+                        options["quiet"] = False
+                    execute.assert_called_once_with(["--", "sleep", "10"], **options)
+
     def test_create_waits_by_default_and_accepts_no_wait(self) -> None:
         for backend in ("mkosi", "podman"):
             for flags, expected in (
