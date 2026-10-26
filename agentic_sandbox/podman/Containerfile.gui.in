@@ -1,0 +1,6 @@
+FROM @BASE_IMAGE@
+
+RUN pacman -Syu --noconfirm && \
+    pacman -S --needed --noconfirm \
+        @GUI_PACKAGES@ && \
+    pacman -Scc --noconfirm

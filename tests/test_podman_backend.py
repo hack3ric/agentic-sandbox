@@ -10,7 +10,7 @@ from unittest.mock import call, patch
 from agentic_sandbox.main import AgenticSandbox, AgenticSandboxError, Paths
 from agentic_sandbox.podman_backend import (
     ARCH_LINUX_IMAGE,
-    GRAPHICS_IMAGE_VERSION,
+    BASE_IMAGE_VERSION,
     GRAPHICS_LABEL,
     GUI_IMAGE_VERSION,
     GUI_LABEL,
@@ -127,6 +127,11 @@ class PodmanBackendTests(unittest.TestCase):
             )
             self.assertIn(["podman", "start", identity.machine_name], commands)
             self.assertIn(["wait", identity.machine_name], commands)
+            self.assertEqual(
+                [cmd for cmd in commands if cmd[:2] == ["podman", "build"]],
+                [backend.build_cmd()],
+            )
+            self.assertFalse(backend.gui_build_marker.exists())
 
     def test_create_cmd_places_backend_args_before_image(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -295,17 +300,66 @@ class PodmanBackendTests(unittest.TestCase):
             self.assertEqual(rebuild_calls, [True])
             print_mock.assert_called_once_with("rebuilt shared image")
 
-    def test_rebuild_pulls_latest_arch_image_before_building(self) -> None:
+    def test_rebuild_updates_base_and_defers_gui_build(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = self.make_paths(Path(tmpdir))
             commands = []
             backend = self.make_backend(paths, commands)
             backend.ensure_workspace = lambda force=False: None
+            backend.write_build_marker()
+            backend.write_build_marker(gui=True)
 
             backend.rebuild()
 
-            self.assertEqual(commands[0], ["podman", "pull", ARCH_LINUX_IMAGE])
-            self.assertEqual(commands[1], backend.build_cmd())
+            self.assertEqual(
+                commands,
+                [["podman", "pull", ARCH_LINUX_IMAGE], backend.build_cmd()],
+            )
+            self.assertTrue(backend.image_is_built())
+            self.assertFalse(backend.gui_build_marker.exists())
+            backend.ensure_image_built(graphics=True)
+            self.assertEqual(commands[2:], [backend.build_cmd(gui=True)])
+
+    def test_failed_image_build_invalidates_markers_and_prevents_creation(self) -> None:
+        for gui in (False, True):
+            with self.subTest(gui=gui), tempfile.TemporaryDirectory() as tmpdir:
+                root = Path(tmpdir)
+                paths = self.make_paths(root)
+                commands = []
+
+                def runner(command, **kwargs):
+                    commands.append(command)
+                    if command[:3] == ["podman", "container", "exists"]:
+                        return subprocess.CompletedProcess(command, 1, "", "")
+                    if command[:2] == ["podman", "build"]:
+                        self.assertFalse(backend.gui_build_marker.exists())
+                        self.assertEqual(backend.build_marker.exists(), gui)
+                        raise subprocess.CalledProcessError(1, command)
+                    return subprocess.CompletedProcess(command, 0, "", "")
+
+                backend = PodmanBackend(paths, runner=runner)
+                backend.write_build_marker()
+                backend.write_build_marker(gui=True)
+                stale_marker = backend.gui_build_marker if gui else backend.build_marker
+                stale_marker.write_text(
+                    json.dumps({"image_version": 0}), encoding="utf-8"
+                )
+                identity = AgenticSandbox(paths, root, backend=backend).identity_for()
+                with (
+                    patch.object(backend, "graphics_args", return_value=[]),
+                    patch.object(backend, "ensure_workspace"),
+                    self.assertRaises(subprocess.CalledProcessError),
+                ):
+                    backend.create(identity, root, graphics=True)
+                self.assertEqual(
+                    commands,
+                    [
+                        ["podman", "container", "exists", identity.machine_name],
+                        backend.build_cmd(gui=gui),
+                    ],
+                )
+                self.assertFalse(backend.gui_build_marker.exists())
+                self.assertEqual(backend.image_is_built(), gui)
 
     def test_mount_args_include_workspace_and_existing_optional_mounts(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -335,32 +389,52 @@ class PodmanBackendTests(unittest.TestCase):
                 mounts,
             )
 
-    def test_workspace_stages_containerfile_and_host_mirrorlist(self) -> None:
+    def test_workspace_separates_base_and_gui_packages_and_stages_mirrorlist(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             paths = self.make_paths(root)
-            containerfile = paths.podman_template_dir / "Containerfile.in"
-            containerfile.write_text(
-                "RUN pacman -S --noconfirm \\\n        @PACKAGES@\n", encoding="utf-8"
-            )
             host_mirrorlist = root / "mirrorlist"
             host_mirrorlist.write_text(
                 "Server = https://example.invalid/$repo/os/$arch\n", encoding="utf-8"
             )
 
             backend = PodmanBackend(paths, error_type=AgenticSandboxError)
+            backend.template_dir = (
+                Path(__file__).resolve().parents[1] / "agentic_sandbox" / "podman"
+            )
             with patch(
                 "agentic_sandbox.podman_backend.HOST_PACMAN_MIRRORLIST", host_mirrorlist
             ):
                 backend.ensure_workspace()
 
-            self.assertIn(
-                "archlinux-keyring",
-                (paths.podman_image_dir / "Containerfile").read_text(encoding="utf-8"),
+            base = (paths.podman_image_dir / "Containerfile").read_text(encoding="utf-8")
+            gui = (paths.podman_image_dir / "Containerfile.gui").read_text(
+                encoding="utf-8"
             )
-            self.assertIn(
-                "sudo",
-                (paths.podman_image_dir / "Containerfile").read_text(encoding="utf-8"),
+            self.assertIn("archlinux-keyring", base)
+            self.assertIn("sudo", base)
+            self.assertTrue(gui.startswith(f"FROM {backend.image_tag}\n"))
+            for package in (
+                "mesa",
+                "vulkan-icd-loader",
+                "vulkan-intel",
+                "vulkan-nouveau",
+                "vulkan-radeon",
+                "xwayland-satellite",
+                "xorg-xdpyinfo",
+            ):
+                self.assertNotIn(package, base.split())
+                self.assertIn(package, gui.split())
+            self.assertNotIn("@", base)
+            self.assertNotIn("@", gui)
+            gui_build = backend.build_cmd(gui=True)
+            self.assertIn("--pull=never", gui_build)
+            self.assertEqual(
+                gui_build[gui_build.index("--tag") + 1], backend.gui_image_tag
+            )
+            self.assertEqual(
+                gui_build[gui_build.index("--file") + 1],
+                str(paths.podman_image_dir / "Containerfile.gui"),
             )
             self.assertEqual(
                 (paths.podman_image_dir / "host-mirrorlist").read_text(
@@ -426,7 +500,7 @@ class PodmanBackendTests(unittest.TestCase):
             self.assertIn(f"{GUI_RUNTIME_DIR}:rw,mode=0700", command)
             self.assertIn("--init", command)
             self.assertIn(f"{GUI_LABEL}=wayland", command)
-            image_index = command.index(backend.image_tag)
+            image_index = command.index(backend.gui_image_tag)
             self.assertEqual(command[image_index - 2 : image_index], ["--cpus", "2"])
             self.assertEqual(
                 command[image_index + 1 :],
@@ -530,19 +604,25 @@ class PodmanBackendTests(unittest.TestCase):
             self.assertEqual(commands, [])
             self.assertTrue(app.identity_for().state_file.exists())
 
-    def test_gui_upgrades_old_image_once_and_preserves_headless_cache(self) -> None:
+    def test_legacy_image_migrates_to_base_then_builds_gui_on_demand(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = self.make_paths(Path(tmpdir))
             commands = []
             backend = self.make_backend(paths, commands)
-            paths.podman_build_marker.write_text("{}", encoding="utf-8")
+            paths.podman_build_marker.write_text(
+                json.dumps({"gui_version": 1, "graphics_version": 1}), encoding="utf-8"
+            )
             backend.ensure_image_built()
-            self.assertEqual(commands, [])
-            backend.ensure_image_built(gui=True)
-            backend.ensure_image_built(gui=True)
             self.assertEqual(commands, [backend.build_cmd()])
+            self.assertFalse(backend.gui_build_marker.exists())
+            backend.ensure_image_built(gui=True)
+            backend.ensure_image_built(graphics=True)
+            backend.ensure_image_built()
+            self.assertEqual(commands, [backend.build_cmd(), backend.build_cmd(gui=True)])
             marker = json.loads(paths.podman_build_marker.read_text(encoding="utf-8"))
-            self.assertEqual(marker["gui_version"], GUI_IMAGE_VERSION)
+            self.assertEqual(marker["image_version"], BASE_IMAGE_VERSION)
+            gui_marker = json.loads(backend.gui_build_marker.read_text(encoding="utf-8"))
+            self.assertEqual(gui_marker["image_version"], GUI_IMAGE_VERSION)
 
     def test_gui_wait_retries_until_xwayland_accepts_connections(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -695,7 +775,14 @@ class PodmanBackendTests(unittest.TestCase):
             ):
                 app.create(graphics=True, quiet=True)
             command = next(cmd for cmd in commands if cmd[:2] == ["podman", "create"])
-            image_index = command.index(backend.image_tag)
+            image_index = command.index(backend.gui_image_tag)
+            self.assertEqual(
+                [cmd for cmd in commands if cmd[:2] == ["podman", "build"]],
+                [backend.build_cmd(), backend.build_cmd(gui=True)],
+            )
+            self.assertLess(
+                commands.index(backend.build_cmd(gui=True)), commands.index(command)
+            )
             self.assertEqual(
                 [command[i + 1] for i, arg in enumerate(command) if arg == "--device"],
                 [f"{device}:{device}:rw" for device in devices],
@@ -723,7 +810,7 @@ class PodmanBackendTests(unittest.TestCase):
                     identity, root, gui=True, graphics=True, kvm=True
                 )
             self.assertEqual(
-                command[command.index(backend.image_tag) + 1 :],
+                command[command.index(backend.gui_image_tag) + 1 :],
                 ["xwayland-satellite", ":0", "-nolisten", "tcp"],
             )
             self.assertIn("/dev/kvm:/dev/kvm:rw", command)
@@ -772,12 +859,14 @@ class PodmanBackendTests(unittest.TestCase):
 
             backend = PodmanBackend(paths, runner=runner, spinner_enabled=False)
             backend.should_allocate_tty = lambda: False
-            backend.write_build_marker()
             app = AgenticSandbox(paths, root, backend=backend)
-            with patch.object(backend, "ensure_workspace"):
+            with patch.object(backend, "ensure_workspace") as workspace:
                 app.create(graphics=True, quiet=True)
                 app.create(graphics=True, quiet=True)
                 self.assertEqual(app.run_sandbox(["--", "true"], quiet=True), 0)
+            workspace.assert_not_called()
+            self.assertFalse(backend.build_marker.exists())
+            self.assertFalse(backend.gui_build_marker.exists())
             self.assertEqual(
                 commands.count(["podman", "start", app.identity_for().machine_name]), 1
             )
@@ -789,23 +878,22 @@ class PodmanBackendTests(unittest.TestCase):
             )
             self.assertEqual(commands[-1][:2], ["podman", "exec"])
 
-    def test_graphics_upgrades_existing_gui_image_once(self) -> None:
+    def test_graphics_rebuilds_only_outdated_gui_image(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = self.make_paths(Path(tmpdir))
             commands = []
             backend = self.make_backend(paths, commands)
-            paths.podman_build_marker.write_text(
-                json.dumps({"gui_version": GUI_IMAGE_VERSION}), encoding="utf-8"
+            backend.write_build_marker()
+            base_marker = backend.build_marker.read_text(encoding="utf-8")
+            backend.gui_build_marker.write_text(
+                json.dumps({"image_version": GUI_IMAGE_VERSION - 1}), encoding="utf-8"
             )
-            backend.ensure_image_built()
+            backend.ensure_image_built(graphics=True)
             backend.ensure_image_built(gui=True)
-            self.assertEqual(commands, [])
-            backend.ensure_image_built(graphics=True)
-            backend.ensure_image_built(graphics=True)
-            self.assertEqual(commands, [backend.build_cmd()])
-            marker = json.loads(paths.podman_build_marker.read_text(encoding="utf-8"))
-            self.assertEqual(marker["graphics_version"], GRAPHICS_IMAGE_VERSION)
-            self.assertEqual(marker["gui_version"], GUI_IMAGE_VERSION)
+            self.assertEqual(commands, [backend.build_cmd(gui=True)])
+            self.assertEqual(backend.build_marker.read_text(encoding="utf-8"), base_marker)
+            marker = json.loads(backend.gui_build_marker.read_text(encoding="utf-8"))
+            self.assertEqual(marker["image_version"], GUI_IMAGE_VERSION)
 
     def test_kvm_create_exposes_device_and_preserves_groups(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

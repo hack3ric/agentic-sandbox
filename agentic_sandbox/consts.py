@@ -41,8 +41,10 @@ DEFAULT_PACKAGES = [
 PODMAN_PACKAGES = [
     package
     for package in DEFAULT_PACKAGES
-    if package not in {"base", "linux", "linux-headers", "rustfmt"}
-] + [
+    if package not in {"base", "linux", "linux-headers"}
+]
+
+PODMAN_GUI_PACKAGES = [
     "mesa",
     "vulkan-icd-loader",
     "vulkan-intel",

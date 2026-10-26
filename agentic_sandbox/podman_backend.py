@@ -13,6 +13,7 @@ from typing import TextIO
 from agentic_sandbox.consts import (
     HOST_BIND_MOUNTS,
     HOST_PACMAN_MIRRORLIST,
+    PODMAN_GUI_PACKAGES,
     PODMAN_PACKAGES,
 )
 
@@ -22,6 +23,7 @@ from .spinner import DEFAULT_SPINNER_FRAME_INTERVAL_SECONDS, Spinner
 DEFAULT_BOOT_TIMEOUT_SECONDS = 30.0
 DEFAULT_BOOT_POLL_INTERVAL_SECONDS = 1.0
 ARCH_LINUX_IMAGE = "docker.io/archlinux:latest"
+BASE_IMAGE_VERSION = 1
 GUI_LABEL = "io.agentic-sandbox.gui"
 GUI_IMAGE_VERSION = 1
 GUI_RUNTIME_DIR = Path("/run/agentic-sandbox-gui")
@@ -30,7 +32,6 @@ GUI_X_DISPLAY = ":0"
 KVM_DEVICE = Path("/dev/kvm")
 KVM_LABEL = "io.agentic-sandbox.kvm"
 GRAPHICS_LABEL = "io.agentic-sandbox.graphics"
-GRAPHICS_IMAGE_VERSION = 1
 DRI_DEVICE_DIR = Path("/dev/dri")
 DRM_SYSFS_DIR = Path("/sys/class/drm")
 NVIDIA_VENDOR_ID = 0x10DE
@@ -53,6 +54,7 @@ class PodmanBackend(Backend):
         self.image_dir = paths.podman_image_dir
         self.template_dir = paths.podman_template_dir
         self.build_marker = paths.podman_build_marker
+        self.gui_build_marker = self.image_dir / ".gui-image-built.json"
         self.runner = runner or subprocess.run
         self.sleeper = sleeper or time.sleep
         self.status_stream = status_stream or sys.stderr
@@ -81,17 +83,13 @@ class PodmanBackend(Backend):
             self.require_kvm(identity)
         if graphics and known:
             self.require_graphics(identity)
-        command = (
-            self.create_cmd(
+        if not known:
+            command = self.create_cmd(
                 identity, cwd, backend_args, gui=gui, kvm=kvm, graphics=graphics
             )
-            if not known
-            else None
-        )
-        self.ensure_image_dir()
-        self.ensure_workspace()
-        self.ensure_image_built(gui=gui, graphics=graphics)
-        if command is not None:
+            self.ensure_image_dir()
+            self.ensure_workspace()
+            self.ensure_image_built(gui=gui, graphics=graphics)
             self.run(command)
         if not self.is_running(identity):
             self.run(["podman", "start", identity.machine_name])
@@ -140,8 +138,7 @@ class PodmanBackend(Backend):
         self.ensure_image_dir()
         self.ensure_workspace(force=True)
         self.run(["podman", "pull", ARCH_LINUX_IMAGE])
-        self.run(self.build_cmd())
-        self.write_build_marker()
+        self.build_image()
 
     def is_running(self, identity) -> bool:
         result = self.run(
@@ -215,7 +212,7 @@ class PodmanBackend(Backend):
             *self.mount_args(cwd),
             *options,
             *forwarded,
-            self.image_tag,
+            self.gui_image_tag if gui or graphics else self.image_tag,
             *entrypoint,
         ]
 
@@ -434,15 +431,20 @@ class PodmanBackend(Backend):
     def image_tag(self) -> str:
         return "localhost/agentic-sandbox:base"
 
-    def build_cmd(self) -> list[str]:
+    @property
+    def gui_image_tag(self) -> str:
+        return "localhost/agentic-sandbox:gui"
+
+    def build_cmd(self, gui: bool = False) -> list[str]:
         return [
             "podman",
             "build",
             "--no-cache",
+            *(["--pull=never"] if gui else []),
             "--tag",
-            self.image_tag,
+            self.gui_image_tag if gui else self.image_tag,
             "--file",
-            str(self.image_dir / "Containerfile"),
+            str(self.image_dir / ("Containerfile.gui" if gui else "Containerfile")),
             str(self.image_dir),
         ]
 
@@ -474,6 +476,8 @@ class PodmanBackend(Backend):
 
     def render_template(self, source: Path) -> str:
         template = source.read_text(encoding="utf-8")
+        template = template.replace("@BASE_IMAGE@", self.image_tag)
+        template = template.replace("@GUI_PACKAGES@", " ".join(PODMAN_GUI_PACKAGES))
         return template.replace("@PACKAGES@", " \\\n        ".join(PODMAN_PACKAGES))
 
     def sync_host_mirrorlist(self, force: bool = False) -> None:
@@ -489,24 +493,27 @@ class PodmanBackend(Backend):
             target.write_text(content, encoding="utf-8")
 
     def ensure_image_built(self, gui: bool = False, graphics: bool = False) -> None:
-        if self.build_marker.exists():
-            if not gui and not graphics:
-                return
-            try:
-                marker = json.loads(self.build_marker.read_text(encoding="utf-8"))
-            except (ValueError, OSError):
-                marker = {}
-            if (
-                isinstance(marker, dict)
-                and (not gui or marker.get("gui_version") == GUI_IMAGE_VERSION)
-                and (
-                    not graphics
-                    or marker.get("graphics_version") == GRAPHICS_IMAGE_VERSION
-                )
-            ):
-                return
-        self.run(self.build_cmd())
-        self.write_build_marker()
+        if not self.image_is_built():
+            self.build_image()
+        if (gui or graphics) and not self.image_is_built(gui=True):
+            self.build_image(gui=True)
+
+    def image_is_built(self, gui: bool = False) -> bool:
+        marker_path = self.gui_build_marker if gui else self.build_marker
+        version = GUI_IMAGE_VERSION if gui else BASE_IMAGE_VERSION
+        try:
+            marker = json.loads(marker_path.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            return False
+        return isinstance(marker, dict) and marker.get("image_version") == version
+
+    def build_image(self, gui: bool = False) -> None:
+        marker_path = self.gui_build_marker if gui else self.build_marker
+        marker_path.unlink(missing_ok=True)
+        if not gui:
+            self.gui_build_marker.unlink(missing_ok=True)
+        self.run(self.build_cmd(gui=gui))
+        self.write_build_marker(gui=gui)
 
     def wait_for_container(
         self,
@@ -550,14 +557,14 @@ class PodmanBackend(Backend):
         command.append(identity.machine_name)
         self.run(command, check=False, capture_output=True, text=True)
 
-    def write_build_marker(self) -> None:
+    def write_build_marker(self, gui: bool = False) -> None:
+        marker_path = self.gui_build_marker if gui else self.build_marker
         payload = {
             "image_dir": str(self.image_dir),
-            "gui_version": GUI_IMAGE_VERSION,
-            "graphics_version": GRAPHICS_IMAGE_VERSION,
+            "image_version": GUI_IMAGE_VERSION if gui else BASE_IMAGE_VERSION,
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
-        self.build_marker.write_text(
+        marker_path.write_text(
             json.dumps(payload, indent=2) + "\n", encoding="utf-8"
         )
 
