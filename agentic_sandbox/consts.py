@@ -46,6 +46,10 @@ PODMAN_PACKAGES = [
 
 PODMAN_GUI_PACKAGES = [
     "mesa",
+    "noto-fonts",
+    "noto-fonts-cjk",
+    "noto-fonts-emoji",
+    "noto-fonts-extra",
     "vulkan-icd-loader",
     "vulkan-intel",
     "vulkan-nouveau",
