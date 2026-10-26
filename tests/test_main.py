@@ -65,6 +65,47 @@ class MainTests(unittest.TestCase):
         self.assertEqual(args.command, "run")
         self.assertEqual(args.exec_args, ["--", "uname"])
 
+    def test_create_waits_by_default_and_accepts_no_wait(self) -> None:
+        for backend in ("mkosi", "podman"):
+            for flags, expected in (
+                ([], True), (["--wait"], True), (["--no-wait"], False)
+            ):
+                with self.subTest(backend=backend, flags=flags):
+                    args = build_parser().parse_args(["-b", backend, "create", *flags])
+                    self.assertEqual(args.wait, expected)
+            args = build_parser().parse_args(
+                ["-b", backend, "create", "--", "--no-wait"]
+            )
+            self.assertTrue(args.wait)
+            self.assertEqual(args.backend_args, ["--", "--no-wait"])
+
+    def test_no_wait_skips_readiness_for_running_sandbox(self) -> None:
+        for backend_name in ("mkosi", "podman"):
+            with (
+                self.subTest(backend=backend_name),
+                tempfile.TemporaryDirectory() as tmpdir,
+            ):
+                paths = self.make_paths(Path(tmpdir))
+
+                class FakeBackend:
+                    name = backend_name
+
+                    def is_running(self, identity):
+                        return True
+
+                    def wait_until_ready(self, identity):
+                        raise AssertionError("waiting not expected")
+
+                with (
+                    patch("agentic_sandbox.main.Paths.detect", return_value=paths),
+                    patch(
+                        "agentic_sandbox.main.make_backend", return_value=FakeBackend()
+                    ),
+                ):
+                    self.assertEqual(
+                        main(["-b", backend_name, "create", "--no-wait", "-q"]), 0
+                    )
+
     def test_parser_collects_create_backend_args_after_separator(self) -> None:
         args = build_parser().parse_args(
             ["--backend", "podman", "create", "--wait", "--", "--cpus", "2"]
@@ -110,6 +151,9 @@ class MainTests(unittest.TestCase):
                                 calls.append(("create", wait))
                                 self.active = True
 
+                            def wait_until_ready(self, identity):
+                                calls.append(("wait",))
+
                             def ssh(self, identity, cwd, extra_args):
                                 calls.append(("exec", list(extra_args)))
                                 print("command output")
@@ -140,7 +184,7 @@ class MainTests(unittest.TestCase):
                             )
 
                         expected_calls = (
-                            [] if running else [("create", command == "run")]
+                            [("wait",)] if running else [("create", True)]
                         )
                         expected_output = (
                             "command output\n" if command == "run" else ""

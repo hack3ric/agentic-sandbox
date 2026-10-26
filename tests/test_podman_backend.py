@@ -55,7 +55,7 @@ class PodmanBackendTests(unittest.TestCase):
 
         return PodmanBackend(paths, runner=runner, error_type=AgenticSandboxError)
 
-    def test_create_builds_creates_and_starts_only_when_waiting(self) -> None:
+    def test_create_always_starts_and_waits_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             paths = self.make_paths(root)
@@ -72,7 +72,11 @@ class PodmanBackendTests(unittest.TestCase):
             )
 
             backend.create(identity, cwd, wait=False)
-            backend.create(identity, cwd, wait=True)
+            self.assertEqual(commands[-1], ["podman", "start", identity.machine_name])
+            self.assertNotIn(["wait", identity.machine_name], commands)
+
+            backend.create(identity, cwd)
+            self.assertEqual(commands[-1], ["wait", identity.machine_name])
 
             self.assertEqual(commands[0][:2], ["podman", "build"])
             self.assertTrue(

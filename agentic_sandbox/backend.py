@@ -13,9 +13,13 @@ class Backend(ABC):
         self,
         identity,
         cwd: Path,
-        wait: bool = False,
+        wait: bool = True,
         backend_args: Sequence[str] = (),
     ) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def wait_until_ready(self, identity) -> None:
         raise NotImplementedError
 
     @abstractmethod

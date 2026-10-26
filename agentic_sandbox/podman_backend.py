@@ -55,7 +55,7 @@ class PodmanBackend(Backend):
         self,
         identity,
         cwd: Path,
-        wait: bool = False,
+        wait: bool = True,
         backend_args: Sequence[str] = (),
     ) -> None:
         self.ensure_image_dir()
@@ -63,9 +63,13 @@ class PodmanBackend(Backend):
         self.ensure_image_built()
         if not self.is_known(identity):
             self.run(self.create_cmd(identity, cwd, backend_args))
-        if wait and not self.is_running(identity):
+        if not self.is_running(identity):
             self.run(["podman", "start", identity.machine_name])
+        if wait:
             self.wait_for_container(identity)
+
+    def wait_until_ready(self, identity) -> None:
+        self.wait_for_container(identity)
 
     def ssh(self, identity, cwd: Path, extra_args: Sequence[str]) -> int:
         if not self.is_running(identity):

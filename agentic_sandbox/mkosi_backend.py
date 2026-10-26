@@ -56,7 +56,7 @@ class MkosiBackend(Backend):
         self,
         identity,
         cwd: Path,
-        wait: bool = False,
+        wait: bool = True,
         backend_args: Sequence[str] = (),
     ) -> None:
         self.ensure_image_dir()
@@ -99,6 +99,9 @@ class MkosiBackend(Backend):
         )
         if wait:
             self.wait_for_machine(identity)
+
+    def wait_until_ready(self, identity) -> None:
+        self.wait_for_machine(identity)
 
     def ssh(self, identity, cwd: Path, extra_args: Sequence[str]) -> int:
         if not self.is_running(identity):

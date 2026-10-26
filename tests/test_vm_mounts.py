@@ -69,10 +69,14 @@ class SandboxMountTests(unittest.TestCase):
             backend.ensure_mkosi_workspace = lambda force=False: None
             backend.ensure_ssh_credentials = lambda: None
             backend.ensure_image_built = lambda: None
+            backend.wait_for_machine = lambda identity: commands.append(
+                ["wait", identity.machine_name]
+            )
 
             with contextlib.redirect_stdout(io.StringIO()):
                 app.create(backend_args=["--", "--qemu-smp", "4"])
 
+            self.assertEqual(commands[-1], ["wait", app.identity_for().machine_name])
             systemd_run = commands[0]
             self.assertIn("--runtime-tree", systemd_run)
             runtime_trees = [

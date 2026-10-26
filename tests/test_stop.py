@@ -375,7 +375,7 @@ class StopTests(unittest.TestCase):
             output = io.StringIO()
 
             with contextlib.redirect_stdout(output):
-                app.create()
+                app.create(wait=False)
 
             self.assertEqual(
                 output.getvalue().splitlines(),

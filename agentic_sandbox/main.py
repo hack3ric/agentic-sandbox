@@ -164,7 +164,7 @@ class AgenticSandbox:
 
     def create(
         self,
-        wait: bool = False,
+        wait: bool = True,
         backend_args: Sequence[str] = (),
         quiet: bool = False,
     ) -> None:
@@ -172,6 +172,8 @@ class AgenticSandbox:
         self.ensure_directories()
         self.prune_stale_state(identity)
         if self.backend.is_running(identity):
+            if wait:
+                self.backend.wait_until_ready(identity)
             self.write_state(identity)
             if not quiet:
                 print(
@@ -378,8 +380,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     create_parser.add_argument(
         "--wait",
-        action="store_true",
-        help="wait for the guest to become reachable before returning",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="wait for the guest to become reachable before returning (default)",
     )
     create_parser.add_argument(
         "-q",
