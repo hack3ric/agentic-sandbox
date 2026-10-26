@@ -363,7 +363,7 @@ def build_parser() -> argparse.ArgumentParser:
         "-b",
         "--backend",
         choices=("mkosi", "podman"),
-        default="mkosi",
+        required=True,
         help="select the runtime backend",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)

@@ -7,11 +7,11 @@
 Run commands from the repository root.
 
 - `./agentic-sandbox --help`: inspect the CLI surface quickly.
-- `./agentic-sandbox create --wait`: start a sandbox and wait until it is reachable.
-- `./agentic-sandbox run -- uname -a`: create-if-needed, wait for boot, then run a command in the sandbox.
-- `./agentic-sandbox exec -- uname -a`: connect to an already running sandbox for the current directory.
-- `./agentic-sandbox stop --force`: stop the transient user unit without waiting for an in-guest shutdown.
-- `./agentic-sandbox rebuild`: rebuild the shared mkosi image; it refuses to run while managed sandboxes are active.
+- `./agentic-sandbox --backend mkosi create --wait`: start a sandbox and wait until it is reachable.
+- `./agentic-sandbox --backend mkosi run -- uname -a`: create-if-needed, wait for boot, then run a command in the sandbox.
+- `./agentic-sandbox --backend mkosi exec -- uname -a`: connect to an already running sandbox for the current directory.
+- `./agentic-sandbox --backend mkosi stop --force`: stop the transient user unit without waiting for an in-guest shutdown.
+- `./agentic-sandbox --backend mkosi rebuild`: rebuild the shared mkosi image; it refuses to run while managed sandboxes are active.
 - `python3 -m compileall agentic_sandbox`: quick syntax check after Python changes.
 
 ## Coding Style & Naming Conventions

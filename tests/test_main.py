@@ -1,3 +1,4 @@
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -36,10 +37,26 @@ class MainTests(unittest.TestCase):
             podman_build_marker=podman_image_dir / ".image-built.json",
         )
 
-    def test_parser_defaults_backend_to_mkosi(self) -> None:
-        args = build_parser().parse_args(["create"])
-        self.assertEqual(args.backend, "mkosi")
-        self.assertEqual(args.command, "create")
+    def test_parser_requires_backend(self) -> None:
+        for command in ("create", "run", "exec", "stop", "rebuild"):
+            with self.subTest(command=command):
+                stderr = io.StringIO()
+                with (
+                    patch("sys.stderr", stderr),
+                    self.assertRaises(SystemExit) as raised,
+                ):
+                    build_parser().parse_args([command])
+
+                self.assertEqual(raised.exception.code, 2)
+                self.assertIn("required: -b/--backend", stderr.getvalue())
+
+    def test_parser_accepts_explicit_backends(self) -> None:
+        for option in ("--backend", "-b"):
+            for backend in ("mkosi", "podman"):
+                with self.subTest(option=option, backend=backend):
+                    args = build_parser().parse_args([option, backend, "create"])
+                    self.assertEqual(args.backend, backend)
+                    self.assertEqual(args.command, "create")
 
     def test_parser_accepts_backend_before_subcommand(self) -> None:
         args = build_parser().parse_args(["--backend", "podman", "run", "--", "uname"])

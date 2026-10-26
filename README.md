@@ -11,18 +11,19 @@ Deps:
 
 ## Usage
 
-Run from any project directory:
+Select a backend with the required `--backend` (or `-b`) option before the
+subcommand. Run from any project directory:
 
 ```console
-$ ./agentic-sandbox create
-$ ./agentic-sandbox create -- --qemu-smp 4
+$ ./agentic-sandbox --backend mkosi create
+$ ./agentic-sandbox --backend mkosi create -- --qemu-smp 4
 $ ./agentic-sandbox --backend podman create --wait
 $ ./agentic-sandbox --backend podman create -- --cpus 2
-$ ./agentic-sandbox run -- uname -a
+$ ./agentic-sandbox --backend mkosi run -- uname -a
 $ ./agentic-sandbox --backend podman run -- uname -a
-$ ./agentic-sandbox exec
-$ ./agentic-sandbox stop
-$ ./agentic-sandbox rebuild
+$ ./agentic-sandbox --backend mkosi exec
+$ ./agentic-sandbox --backend mkosi stop
+$ ./agentic-sandbox --backend mkosi rebuild
 ```
 
 Arguments after `--` on `create` are passed to the selected backend's create
