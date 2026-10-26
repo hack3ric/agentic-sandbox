@@ -416,8 +416,10 @@ class PodmanBackend(Backend):
                 command.extend(["--env", f"TERM={term}"])
         if detached:
             command.append("--detach")
-        elif allocate_tty:
-            command.append("-it")
+        else:
+            command.append("-i")
+            if allocate_tty:
+                command.append("-t")
         command.append(identity.machine_name)
         if not forwarded:
             command.extend(

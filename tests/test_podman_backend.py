@@ -193,7 +193,8 @@ class PodmanBackendTests(unittest.TestCase):
 
             command = next(cmd for cmd in commands if cmd[:2] == ["podman", "exec"])
             self.assertEqual(command[:3], ["podman", "exec", "--workdir"])
-            self.assertIn("-it", command)
+            self.assertIn("-i", command)
+            self.assertIn("-t", command)
             self.assertEqual(
                 [command[i + 1] for i, arg in enumerate(command) if arg == "--env"],
                 ["TERM=xterm-256color"],
@@ -215,13 +216,14 @@ class PodmanBackendTests(unittest.TestCase):
                     with patch.dict(os.environ, environment, clear=True):
                         command = backend.exec_cmd(identity, root, ["--", "env"])
 
-                    self.assertIn("-it", command)
+                    self.assertIn("-i", command)
+                    self.assertIn("-t", command)
                     self.assertEqual(
                         [command[i + 1] for i, arg in enumerate(command) if arg == "--env"],
                         expected,
                     )
 
-    def test_ssh_runs_command_without_tty_when_not_needed(self) -> None:
+    def test_ssh_keeps_stdin_open_without_tty(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             paths = self.make_paths(root)
@@ -247,12 +249,13 @@ class PodmanBackendTests(unittest.TestCase):
             backend.should_allocate_tty = lambda: False
 
             with patch.dict(os.environ, {"TERM": "xterm-256color"}):
-                app.exec_in_sandbox(["--", "pwd"])
+                app.exec_in_sandbox(["--", "cat"])
 
             command = next(cmd for cmd in commands if cmd[:2] == ["podman", "exec"])
-            self.assertNotIn("-it", command)
+            self.assertIn("-i", command)
+            self.assertNotIn("-t", command)
             self.assertNotIn("--env", command)
-            self.assertTrue(command[-1].endswith(f"cd '{cwd}' && exec pwd"))
+            self.assertTrue(command[-1].endswith(f"cd '{cwd}' && exec cat"))
 
     def test_detached_exec_preserves_arguments_and_never_allocates_tty(self) -> None:
         for terminal in (False, True):
@@ -325,7 +328,8 @@ class PodmanBackendTests(unittest.TestCase):
                 [["podman", "create"], ["podman", "start"], ["wait"], ["podman", "exec"]],
             )
             self.assertIn("--detach", commands[-1])
-            self.assertNotIn("-it", commands[-1])
+            self.assertNotIn("-i", commands[-1])
+            self.assertNotIn("-t", commands[-1])
             self.assertTrue(app.identity_for().state_file.exists())
 
     def test_detached_exec_rejects_inactive_container(self) -> None:
