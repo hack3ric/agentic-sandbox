@@ -25,3 +25,6 @@ Recent commits use short, imperative subjects such as `graceful stop` and `subco
 
 ## Security & Configuration Tips
 Do not commit generated runtime state or anything from `~/.local/share/agentic-sandbox` or `~/.local/state/agentic-sandbox`, including rendered mkosi workspaces, SSH credentials, or build markers. Treat mkosi template changes carefully: they affect every created sandbox image and every project that reuses the shared base image.
+
+## Documentations
+Keep documentation of new functions/changes outside of README.md.
