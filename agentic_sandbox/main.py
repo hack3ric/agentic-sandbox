@@ -11,7 +11,7 @@ import string
 import subprocess
 import sys
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -19,11 +19,13 @@ from agentic_sandbox.consts import (
     APP_NAME,
     DEFAULT_STOP_POLL_INTERVAL_SECONDS,
     DEFAULT_STOP_TIMEOUT_SECONDS,
+    HOST_BIND_MOUNTS,
     MAX_MACHINE_NAME_LENGTH,
 )
 
-from .mkosi_backend import MkosiBackend
-from .podman_backend import PodmanBackend
+from .mkosi_backend import GUEST_WORK_MOUNT, MkosiBackend
+from .mounts import DirectoryMount, parse_mounts, recorded_mounts
+from .podman_backend import GUI_RUNTIME_DIR, PodmanBackend
 
 
 class AgenticSandboxError(RuntimeError):
@@ -89,6 +91,7 @@ class SandboxState:
     image_dir: str
     backend: str
     created_at: str
+    mounts: list[str] = field(default_factory=list)
 
 
 # Compatibility alias for older callers and tests that still use the previous name.
@@ -170,6 +173,7 @@ class AgenticSandbox:
         gui: bool = False,
         kvm: bool = False,
         graphics: bool = False,
+        mounts: Sequence[str] = (),
     ) -> None:
         if gui and self.backend_name != "podman":
             raise AgenticSandboxError("--gui is only supported by the podman backend")
@@ -177,10 +181,21 @@ class AgenticSandbox:
             raise AgenticSandboxError("--kvm is only supported by the podman backend")
         if graphics and self.backend_name != "podman":
             raise AgenticSandboxError("--graphics is only supported by the podman backend")
+        reserved_targets = [
+            self.cwd,
+            *(Path("/root") / relative for relative in HOST_BIND_MOUNTS),
+            GUEST_WORK_MOUNT if self.backend_name == "mkosi" else GUI_RUNTIME_DIR,
+        ]
+        try:
+            directory_mounts = parse_mounts(mounts, self.cwd, reserved_targets)
+        except ValueError as exc:
+            raise AgenticSandboxError(str(exc)) from exc
         identity = self.identity_for()
         self.ensure_directories()
         self.prune_stale_state(identity)
         if self.backend.is_running(identity):
+            if directory_mounts:
+                self.backend.require_mounts(identity, directory_mounts)
             if gui:
                 self.backend.require_gui(identity)
             if kvm:
@@ -198,13 +213,16 @@ class AgenticSandbox:
         self.backend.create(
             identity,
             identity.cwd,
-            wait=wait,
+            wait=False,
             backend_args=backend_args,
             **({"gui": True} if gui else {}),
             **({"kvm": True} if kvm else {}),
             **({"graphics": True} if graphics else {}),
+            **({"mounts": directory_mounts} if directory_mounts else {}),
         )
-        self.write_state(identity)
+        self.write_state(identity, mounts=directory_mounts or None)
+        if wait:
+            self.backend.wait_until_ready(identity)
         if not quiet:
             print(f"created {self.display_name(identity)}")
 
@@ -344,9 +362,13 @@ class AgenticSandbox:
 
     def prune_stale_state(self, identity: SandboxIdentity) -> None:
         if identity.state_file.exists() and not self.backend.is_running(identity):
+            if self.backend_name == "podman" and self.backend.is_known(identity):
+                return
             identity.state_file.unlink(missing_ok=True)
 
-    def write_state(self, identity: SandboxIdentity) -> None:
+    def write_state(
+        self, identity: SandboxIdentity, mounts: Sequence[DirectoryMount] | None = None
+    ) -> None:
         state = SandboxState(
             cwd=str(identity.cwd),
             sandbox_id=identity.sandbox_id,
@@ -355,6 +377,11 @@ class AgenticSandbox:
             image_dir=str(self.backend_image_dir()),
             backend=self.backend_name,
             created_at=datetime.now(timezone.utc).isoformat(),
+            mounts=(
+                [str(mount) for mount in mounts]
+                if mounts is not None
+                else recorded_mounts(identity.state_file)
+            ),
         )
         identity.state_file.write_text(
             json.dumps(asdict(state), indent=2) + "\n", encoding="utf-8"
@@ -445,6 +472,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="suppress agentic-sandbox status messages and spinners",
     )
     create_parser.add_argument(
+        "-m",
+        "--mount",
+        dest="mounts",
+        action="append",
+        default=[],
+        metavar="HOST[:GUEST]",
+        help="mount an additional directory read-write; repeat for multiple mounts "
+        "(guest defaults to the absolute host path)",
+    )
+    create_parser.add_argument(
         "backend_args",
         nargs=argparse.REMAINDER,
         help="options passed to the selected backend after --",
@@ -512,6 +549,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 gui=args.gui,
                 kvm=args.kvm,
                 graphics=args.graphics,
+                mounts=args.mounts,
             )
             return 0
         if args.command == "run":

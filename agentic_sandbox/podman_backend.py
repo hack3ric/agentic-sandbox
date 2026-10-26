@@ -18,6 +18,7 @@ from agentic_sandbox.consts import (
 )
 
 from .backend import Backend
+from .mounts import DirectoryMount
 from .spinner import DEFAULT_SPINNER_FRAME_INTERVAL_SECONDS, Spinner
 
 DEFAULT_BOOT_TIMEOUT_SECONDS = 30.0
@@ -75,8 +76,11 @@ class PodmanBackend(Backend):
         gui: bool = False,
         kvm: bool = False,
         graphics: bool = False,
+        mounts: Sequence[DirectoryMount] = (),
     ) -> None:
         known = self.is_known(identity)
+        if mounts and known:
+            self.require_mounts(identity, mounts)
         if gui and known:
             self.require_gui(identity)
         if kvm and known:
@@ -85,7 +89,13 @@ class PodmanBackend(Backend):
             self.require_graphics(identity)
         if not known:
             command = self.create_cmd(
-                identity, cwd, backend_args, gui=gui, kvm=kvm, graphics=graphics
+                identity,
+                cwd,
+                backend_args,
+                gui=gui,
+                kvm=kvm,
+                graphics=graphics,
+                mounts=mounts,
             )
             self.ensure_image_dir()
             self.ensure_workspace()
@@ -177,6 +187,7 @@ class PodmanBackend(Backend):
         gui: bool = False,
         kvm: bool = False,
         graphics: bool = False,
+        mounts: Sequence[DirectoryMount] = (),
     ) -> list[str]:
         forwarded = list(backend_args)
         if forwarded and forwarded[0] == "--":
@@ -213,7 +224,7 @@ class PodmanBackend(Backend):
             identity.machine_name,
             "--workdir",
             str(cwd),
-            *self.mount_args(cwd),
+            *self.mount_args(cwd, mounts),
             *options,
             *forwarded,
             self.gui_image_tag if gui or graphics else self.image_tag,
@@ -436,12 +447,16 @@ class PodmanBackend(Backend):
         )
         return command
 
-    def mount_args(self, cwd: Path) -> list[str]:
+    def mount_args(
+        self, cwd: Path, mounts: Sequence[DirectoryMount] = ()
+    ) -> list[str]:
         args = ["--volume", f"{cwd}:{cwd}"]
         for relative in HOST_BIND_MOUNTS:
             source = self.paths.home / relative
             if source.exists():
                 args.extend(["--volume", f"{source}:{Path('/root') / relative}"])
+        for mount in mounts:
+            args.extend(["--volume", str(mount)])
         return args
 
     @property

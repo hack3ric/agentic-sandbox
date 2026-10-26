@@ -4,9 +4,12 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from pathlib import Path
 
+from .mounts import DirectoryMount, recorded_mounts
+
 
 class Backend(ABC):
     name = "backend"
+    error_type: type[RuntimeError] = RuntimeError
 
     @abstractmethod
     def create(
@@ -15,8 +18,17 @@ class Backend(ABC):
         cwd: Path,
         wait: bool = True,
         backend_args: Sequence[str] = (),
+        mounts: Sequence[DirectoryMount] = (),
     ) -> None:
         raise NotImplementedError
+
+    def require_mounts(self, identity, mounts: Sequence[DirectoryMount]) -> None:
+        if {str(mount) for mount in mounts} != set(recorded_mounts(identity.state_file)):
+            raise self.error_type(
+                f"{identity.machine_name} has different or unrecorded mounts; "
+                "stop and recreate it with the requested --mount options "
+                "(stopping discards the sandbox's writable layer)"
+            )
 
     @abstractmethod
     def wait_until_ready(self, identity) -> None:

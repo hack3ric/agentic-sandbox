@@ -178,6 +178,10 @@ class StopTests(unittest.TestCase):
                         (identity.unit_name, backend_cwd, wait, list(backend_args))
                     )
 
+                def wait_until_ready(self, identity):
+                    state = json.loads(identity.state_file.read_text())
+                    calls.append(("wait", state["sandbox_id"]))
+
                 def ssh(self, identity, backend_cwd, extra_args):
                     raise AssertionError("ssh not expected")
 
@@ -206,9 +210,10 @@ class StopTests(unittest.TestCase):
                     (
                         identity.unit_name,
                         cwd.resolve(),
-                        True,
+                        False,
                         ["--", "--qemu-smp", "4"],
-                    )
+                    ),
+                    ("wait", identity.sandbox_id),
                 ],
             )
             self.assertTrue(identity.state_file.exists())
@@ -280,6 +285,9 @@ class StopTests(unittest.TestCase):
                 def create(
                     self, identity, backend_cwd, wait=False, backend_args=()
                 ):
+                    return None
+
+                def wait_until_ready(self, identity):
                     return None
 
                 def ssh(self, identity, backend_cwd, extra_args):

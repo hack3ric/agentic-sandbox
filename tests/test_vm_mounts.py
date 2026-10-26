@@ -38,7 +38,7 @@ class SandboxMountTests(unittest.TestCase):
             app = AgenticSandbox(paths, cwd, backend=backend)
             app.ensure_directories = lambda: None
             app.prune_stale_state = lambda identity: None
-            app.write_state = lambda identity: None
+            app.write_state = lambda identity, mounts=None: None
             backend.is_running = lambda identity: False
             backend.ensure_mkosi_workspace = lambda force=False: None
             backend.ensure_ssh_credentials = lambda: None

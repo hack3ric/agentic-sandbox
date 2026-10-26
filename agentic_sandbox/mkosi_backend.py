@@ -15,6 +15,7 @@ from agentic_sandbox.consts import (
 )
 
 from .backend import Backend
+from .mounts import DirectoryMount
 from .spinner import DEFAULT_SPINNER_FRAME_INTERVAL_SECONDS, Spinner
 
 DEFAULT_RUNTIME_SIZE = "32G"
@@ -58,6 +59,7 @@ class MkosiBackend(Backend):
         cwd: Path,
         wait: bool = True,
         backend_args: Sequence[str] = (),
+        mounts: Sequence[DirectoryMount] = (),
     ) -> None:
         self.ensure_image_dir()
         self.ensure_mkosi_workspace()
@@ -80,7 +82,7 @@ class MkosiBackend(Backend):
                 *forwarded,
                 "vm",
             ),
-            *self.runtime_tree_args(cwd),
+            *self.runtime_tree_args(cwd, mounts),
         ]
         self.run(
             [
@@ -159,12 +161,16 @@ class MkosiBackend(Backend):
             result.stderr or ""
         )
 
-    def runtime_tree_args(self, cwd: Path) -> list[str]:
+    def runtime_tree_args(
+        self, cwd: Path, mounts: Sequence[DirectoryMount] = ()
+    ) -> list[str]:
         args = ["--runtime-tree", f"{cwd}:{GUEST_WORK_MOUNT}"]
         for relative in HOST_BIND_MOUNTS:
             source = self.paths.home / relative
             if source.exists():
                 args.extend(["--runtime-tree", f"{source}:{Path('/root') / relative}"])
+        for mount in mounts:
+            args.extend(["--runtime-tree", str(mount)])
         return args
 
     def should_allocate_ssh_tty(self) -> bool:

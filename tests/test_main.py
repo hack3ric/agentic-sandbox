@@ -209,7 +209,8 @@ class MainTests(unittest.TestCase):
             result = main(["-b", "podman", "create", "--gui", "--wait", "-q"])
         self.assertEqual(result, 0)
         create.assert_called_once_with(
-            wait=True, backend_args=[], quiet=True, gui=True, kvm=False, graphics=False
+            wait=True, backend_args=[], quiet=True, gui=True, kvm=False, graphics=False,
+            mounts=[],
         )
 
     def test_kvm_is_a_create_option_only(self) -> None:
@@ -220,7 +221,8 @@ class MainTests(unittest.TestCase):
         ):
             self.assertEqual(main(["-b", "podman", "create", "--kvm"]), 0)
         create.assert_called_once_with(
-            wait=True, backend_args=[], quiet=False, gui=False, kvm=True, graphics=False
+            wait=True, backend_args=[], quiet=False, gui=False, kvm=True, graphics=False,
+            mounts=[],
         )
         self.assertFalse(build_parser().parse_args(["-b", "podman", "create"]).kvm)
         with patch("sys.stderr", io.StringIO()), self.assertRaises(SystemExit):
@@ -251,7 +253,8 @@ class MainTests(unittest.TestCase):
         ):
             self.assertEqual(main(["-b", "podman", "create", "--graphics"]), 0)
         create.assert_called_once_with(
-            wait=True, backend_args=[], quiet=False, gui=False, kvm=False, graphics=True
+            wait=True, backend_args=[], quiet=False, gui=False, kvm=False, graphics=True,
+            mounts=[],
         )
         self.assertFalse(
             build_parser().parse_args(["-b", "podman", "create"]).graphics
@@ -351,7 +354,7 @@ class MainTests(unittest.TestCase):
                             )
 
                         expected_calls = (
-                            [("wait",)] if running else [("create", True)]
+                            [("wait",)] if running else [("create", False), ("wait",)]
                         )
                         expected_output = (
                             "command output\n" if command == "run" else ""
@@ -418,6 +421,7 @@ class MainTests(unittest.TestCase):
                     gui=False,
                     kvm=False,
                     graphics=False,
+                    mounts=(),
                 ):
                     selected.append((self.backend, wait, list(backend_args)))
 
