@@ -401,6 +401,9 @@ class PodmanBackend(Backend):
         if forwarded and forwarded[0] == "--":
             forwarded = forwarded[1:]
         command = ["podman", "exec", "--workdir", str(cwd)]
+        term = os.environ.get("TERM")
+        if term is not None:
+            command.extend(["--env", f"TERM={term}"])
         if not forwarded or self.should_allocate_tty():
             command.append("-it")
         command.append(identity.machine_name)
