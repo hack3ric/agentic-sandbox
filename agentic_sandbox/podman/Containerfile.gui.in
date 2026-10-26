@@ -3,4 +3,9 @@ FROM @BASE_IMAGE@
 RUN pacman -Syu --noconfirm && \
     pacman -S --needed --noconfirm \
         @GUI_PACKAGES@ && \
+    curl --proto '=https' --tlsv1.2 -fsSL \
+        -o /tmp/install-chatgpt-arch.sh \
+        https://persistent.oaistatic.com/codex-app-prod/linux/install-arch.sh && \
+    yes | bash /tmp/install-chatgpt-arch.sh && \
+    rm /tmp/install-chatgpt-arch.sh && \
     pacman -Scc --noconfirm
