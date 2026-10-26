@@ -388,7 +388,7 @@ def build_parser() -> argparse.ArgumentParser:
         "-q",
         "--quiet",
         action="store_true",
-        help="suppress agentic-sandbox status messages on stdout",
+        help="suppress agentic-sandbox status messages and spinners",
     )
     create_parser.add_argument(
         "backend_args",
@@ -403,7 +403,7 @@ def build_parser() -> argparse.ArgumentParser:
         "-q",
         "--quiet",
         action="store_true",
-        help="suppress agentic-sandbox status messages on stdout",
+        help="suppress agentic-sandbox status messages and spinners",
     )
     run_parser.add_argument("exec_args", nargs=argparse.REMAINDER)
     exec_parser = subparsers.add_parser(
@@ -436,7 +436,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     app = AgenticSandbox(
         paths,
         Path.cwd(),
-        backend=make_backend(args.backend, paths, error_type=AgenticSandboxError),
+        backend=make_backend(
+            args.backend,
+            paths,
+            spinner_enabled=False if getattr(args, "quiet", False) else None,
+            error_type=AgenticSandboxError,
+        ),
     )
     try:
         if args.command == "create":
