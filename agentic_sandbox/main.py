@@ -169,11 +169,14 @@ class AgenticSandbox:
         quiet: bool = False,
         gui: bool = False,
         kvm: bool = False,
+        graphics: bool = False,
     ) -> None:
         if gui and self.backend_name != "podman":
             raise AgenticSandboxError("--gui is only supported by the podman backend")
         if kvm and self.backend_name != "podman":
             raise AgenticSandboxError("--kvm is only supported by the podman backend")
+        if graphics and self.backend_name != "podman":
+            raise AgenticSandboxError("--graphics is only supported by the podman backend")
         identity = self.identity_for()
         self.ensure_directories()
         self.prune_stale_state(identity)
@@ -182,6 +185,8 @@ class AgenticSandbox:
                 self.backend.require_gui(identity)
             if kvm:
                 self.backend.require_kvm(identity)
+            if graphics:
+                self.backend.require_graphics(identity)
             if wait:
                 self.backend.wait_until_ready(identity)
             self.write_state(identity)
@@ -197,6 +202,7 @@ class AgenticSandbox:
             backend_args=backend_args,
             **({"gui": True} if gui else {}),
             **({"kvm": True} if kvm else {}),
+            **({"graphics": True} if graphics else {}),
         )
         self.write_state(identity)
         if not quiet:
@@ -405,6 +411,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="enable Wayland and X11 applications through XWayland (podman only)",
     )
     create_parser.add_argument(
+        "--graphics",
+        action="store_true",
+        help="enable Mesa hardware rendering and preserve supplementary groups "
+        "(podman with crun only)",
+    )
+    create_parser.add_argument(
         "--kvm",
         action="store_true",
         help="expose /dev/kvm and preserve supplementary groups (podman with crun only)",
@@ -476,6 +488,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 quiet=args.quiet,
                 gui=args.gui,
                 kvm=args.kvm,
+                graphics=args.graphics,
             )
             return 0
         if args.command == "run":

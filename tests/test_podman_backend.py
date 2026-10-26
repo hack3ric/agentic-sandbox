@@ -5,11 +5,13 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from agentic_sandbox.main import AgenticSandbox, AgenticSandboxError, Paths
 from agentic_sandbox.podman_backend import (
     ARCH_LINUX_IMAGE,
+    GRAPHICS_IMAGE_VERSION,
+    GRAPHICS_LABEL,
     GUI_IMAGE_VERSION,
     GUI_LABEL,
     GUI_RUNTIME_DIR,
@@ -49,6 +51,22 @@ class PodmanBackendTests(unittest.TestCase):
             podman_image_dir=podman_image_dir,
             podman_build_marker=podman_image_dir / ".image-built.json",
         )
+
+    def make_render_device(
+        self, root: Path, name: str, vendor: str | None = None, driver: str | None = None
+    ) -> Path:
+        device = root / "dri" / name
+        device.parent.mkdir(exist_ok=True)
+        device.touch()
+        sysfs_device = root / "sysfs" / name / "device"
+        sysfs_device.mkdir(parents=True)
+        if vendor is not None:
+            (sysfs_device / "vendor").write_text(vendor + "\n", encoding="utf-8")
+        if driver is not None:
+            driver_dir = root / "drivers" / driver
+            driver_dir.mkdir(parents=True, exist_ok=True)
+            (sysfs_device / "driver").symlink_to(driver_dir, target_is_directory=True)
+        return device
 
     def make_backend(self, paths: Paths, commands: list[list[str]]) -> PodmanBackend:
         class Result:
@@ -412,7 +430,7 @@ class PodmanBackendTests(unittest.TestCase):
             self.assertEqual(command[image_index - 2 : image_index], ["--cpus", "2"])
             self.assertEqual(
                 command[image_index + 1 :],
-                ["xwayland-satellite", ":0", "-nolisten", "tcp", "-glamor", "none"],
+                ["xwayland-satellite", ":0", "-nolisten", "tcp", "-shm"],
             )
 
     def test_gui_accepts_absolute_socket_without_runtime_environment(self) -> None:
@@ -591,6 +609,203 @@ class PodmanBackendTests(unittest.TestCase):
             self.assertEqual(commands[0], ["wait"])
             self.assertEqual(commands[1][:2], ["podman", "exec"])
             self.assertTrue(commands[1][-1].endswith("exec example-app"))
+
+    def test_graphics_accepts_nouveau_and_excludes_nvidia_driver(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            backend = PodmanBackend(self.make_paths(root))
+            amd = self.make_render_device(root, "renderD129", "0x1002", "amdgpu")
+            intel = self.make_render_device(root, "renderD128", "0x8086", "i915")
+            self.make_render_device(root, "renderD130", "0x10de")
+            self.make_render_device(root, "renderD131", driver="nvidia")
+            nouveau = self.make_render_device(root, "renderD132", "0x10de", "nouveau")
+            virtio = self.make_render_device(root, "renderD133", driver="virtio_gpu")
+            (root / "dri" / "card0").touch()
+            with (
+                patch("agentic_sandbox.podman_backend.DRI_DEVICE_DIR", root / "dri"),
+                patch("agentic_sandbox.podman_backend.DRM_SYSFS_DIR", root / "sysfs"),
+                patch.object(Path, "is_char_device", return_value=True),
+                patch(
+                    "agentic_sandbox.podman_backend.os.access", return_value=True
+                ) as access,
+            ):
+                self.assertEqual(backend.graphics_devices(), [intel, amd, nouveau, virtio])
+            self.assertEqual(
+                access.call_args_list,
+                [
+                    call(device, os.R_OK | os.W_OK)
+                    for device in (intel, amd, nouveau, virtio)
+                ],
+            )
+
+    def test_graphics_rejects_unavailable_devices_before_building(self) -> None:
+        for scenario, message in (
+            ("missing", "requires a Mesa-compatible GPU render device"),
+            ("nvidia", "requires a Mesa-compatible GPU render device"),
+            ("unknown", "cannot identify GPU render device"),
+            ("malformed", "cannot identify GPU render device"),
+            ("regular_file", "requires a host character device"),
+            ("inaccessible", "requires read/write access"),
+        ):
+            with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as tmpdir:
+                root = Path(tmpdir)
+                paths = self.make_paths(root)
+                if scenario != "missing":
+                    vendor = {
+                        "nvidia": "0x10de",
+                        "unknown": None,
+                        "malformed": "invalid",
+                    }.get(scenario, "0x8086")
+                    self.make_render_device(root, "renderD128", vendor)
+                commands = []
+                backend = self.make_backend(paths, commands)
+                identity = AgenticSandbox(paths, root, backend=backend).identity_for()
+                with (
+                    patch("agentic_sandbox.podman_backend.DRI_DEVICE_DIR", root / "dri"),
+                    patch("agentic_sandbox.podman_backend.DRM_SYSFS_DIR", root / "sysfs"),
+                    patch.object(
+                        Path, "is_char_device", return_value=scenario != "regular_file"
+                    ),
+                    patch(
+                        "agentic_sandbox.podman_backend.os.access",
+                        return_value=scenario != "inaccessible",
+                    ),
+                    self.assertRaisesRegex(AgenticSandboxError, message),
+                ):
+                    backend.create(identity, root, graphics=True)
+                self.assertEqual(
+                    commands,
+                    [["podman", "container", "exists", identity.machine_name]],
+                )
+                self.assertFalse(paths.podman_build_marker.exists())
+
+    def test_graphics_create_exposes_devices_without_a_display(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = self.make_paths(root)
+            commands = []
+            backend = self.make_backend(paths, commands)
+            app = AgenticSandbox(paths, root, backend=backend)
+            devices = [Path("/dev/dri/renderD128"), Path("/dev/dri/renderD129")]
+            with (
+                patch.object(backend, "graphics_devices", return_value=devices),
+                patch.object(backend, "ensure_workspace"),
+                patch.object(backend, "wait_for_container"),
+                patch.dict(os.environ, {}, clear=True),
+            ):
+                app.create(graphics=True, quiet=True)
+            command = next(cmd for cmd in commands if cmd[:2] == ["podman", "create"])
+            image_index = command.index(backend.image_tag)
+            self.assertEqual(
+                [command[i + 1] for i, arg in enumerate(command) if arg == "--device"],
+                [f"{device}:{device}:rw" for device in devices],
+            )
+            self.assertIn(f"{GRAPHICS_LABEL}=enabled", command[:image_index])
+            self.assertEqual(command[command.index("--group-add") + 1], "keep-groups")
+            self.assertLess(command.index("--device"), image_index)
+            self.assertEqual(command[image_index + 1], "/bin/sh")
+            self.assertNotIn("--privileged", command)
+
+    def test_graphics_gui_accelerates_xwayland_and_shares_kvm_group_option(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            backend = PodmanBackend(self.make_paths(root))
+            identity = AgenticSandbox(backend.paths, root, backend=backend).identity_for()
+            with (
+                patch.object(backend, "gui_args", return_value=[]),
+                patch.object(
+                    backend, "graphics_devices", return_value=[Path("/dev/dri/renderD128")]
+                ),
+                patch.object(Path, "is_char_device", return_value=True),
+                patch("agentic_sandbox.podman_backend.os.access", return_value=True),
+            ):
+                command = backend.create_cmd(
+                    identity, root, gui=True, graphics=True, kvm=True
+                )
+            self.assertEqual(
+                command[command.index(backend.image_tag) + 1 :],
+                ["xwayland-satellite", ":0", "-nolisten", "tcp"],
+            )
+            self.assertIn("/dev/kvm:/dev/kvm:rw", command)
+            self.assertEqual(command.count("--group-add"), 1)
+            self.assertEqual(command.count("keep-groups"), 1)
+
+    def test_graphics_request_rejects_existing_container_without_graphics(self) -> None:
+        for running in (False, True):
+            with self.subTest(running=running), tempfile.TemporaryDirectory() as tmpdir:
+                root = Path(tmpdir)
+                paths = self.make_paths(root)
+                commands = []
+                backend = self.make_backend(paths, commands)
+                backend.is_known = lambda identity: True
+                backend.is_running = lambda identity, running=running: running
+                app = AgenticSandbox(paths, root, backend=backend)
+                with self.assertRaisesRegex(
+                    AgenticSandboxError, "was created without --graphics"
+                ):
+                    app.create(graphics=True, quiet=True)
+                self.assertTrue(commands)
+                self.assertTrue(
+                    all(cmd[:3] == ["podman", "container", "inspect"] for cmd in commands)
+                )
+                self.assertFalse(app.identity_for().state_file.exists())
+
+    def test_graphics_container_is_reused_by_create_and_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = self.make_paths(root)
+            commands = []
+            running = False
+
+            def runner(command, **kwargs):
+                nonlocal running
+                commands.append(command)
+                output = ""
+                if command[:2] == ["podman", "start"]:
+                    running = True
+                elif command[:3] == ["podman", "container", "inspect"]:
+                    if command[-2] == "{{.State.Running}}":
+                        output = str(running).lower()
+                    elif GRAPHICS_LABEL in command[-2]:
+                        output = "enabled"
+                return subprocess.CompletedProcess(command, 0, output, "")
+
+            backend = PodmanBackend(paths, runner=runner, spinner_enabled=False)
+            backend.should_allocate_tty = lambda: False
+            backend.write_build_marker()
+            app = AgenticSandbox(paths, root, backend=backend)
+            with patch.object(backend, "ensure_workspace"):
+                app.create(graphics=True, quiet=True)
+                app.create(graphics=True, quiet=True)
+                self.assertEqual(app.run_sandbox(["--", "true"], quiet=True), 0)
+            self.assertEqual(
+                commands.count(["podman", "start", app.identity_for().machine_name]), 1
+            )
+            self.assertFalse(
+                any(
+                    cmd[:2] in (["podman", "create"], ["podman", "build"])
+                    for cmd in commands
+                )
+            )
+            self.assertEqual(commands[-1][:2], ["podman", "exec"])
+
+    def test_graphics_upgrades_existing_gui_image_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = self.make_paths(Path(tmpdir))
+            commands = []
+            backend = self.make_backend(paths, commands)
+            paths.podman_build_marker.write_text(
+                json.dumps({"gui_version": GUI_IMAGE_VERSION}), encoding="utf-8"
+            )
+            backend.ensure_image_built()
+            backend.ensure_image_built(gui=True)
+            self.assertEqual(commands, [])
+            backend.ensure_image_built(graphics=True)
+            backend.ensure_image_built(graphics=True)
+            self.assertEqual(commands, [backend.build_cmd()])
+            marker = json.loads(paths.podman_build_marker.read_text(encoding="utf-8"))
+            self.assertEqual(marker["graphics_version"], GRAPHICS_IMAGE_VERSION)
+            self.assertEqual(marker["gui_version"], GUI_IMAGE_VERSION)
 
     def test_kvm_create_exposes_device_and_preserves_groups(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

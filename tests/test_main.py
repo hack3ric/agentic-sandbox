@@ -157,7 +157,7 @@ class MainTests(unittest.TestCase):
             result = main(["-b", "podman", "create", "--gui", "--wait", "-q"])
         self.assertEqual(result, 0)
         create.assert_called_once_with(
-            wait=True, backend_args=[], quiet=True, gui=True, kvm=False
+            wait=True, backend_args=[], quiet=True, gui=True, kvm=False, graphics=False
         )
 
     def test_kvm_is_a_create_option_only(self) -> None:
@@ -168,7 +168,7 @@ class MainTests(unittest.TestCase):
         ):
             self.assertEqual(main(["-b", "podman", "create", "--kvm"]), 0)
         create.assert_called_once_with(
-            wait=True, backend_args=[], quiet=False, gui=False, kvm=True
+            wait=True, backend_args=[], quiet=False, gui=False, kvm=True, graphics=False
         )
         self.assertFalse(build_parser().parse_args(["-b", "podman", "create"]).kvm)
         with patch("sys.stderr", io.StringIO()), self.assertRaises(SystemExit):
@@ -190,6 +190,38 @@ class MainTests(unittest.TestCase):
             self.assertIn(
                 "--kvm is only supported by the podman backend", stderr.getvalue()
             )
+
+    def test_graphics_is_an_independent_create_option(self) -> None:
+        with (
+            patch("agentic_sandbox.main.Paths.detect"),
+            patch("agentic_sandbox.main.make_backend"),
+            patch("agentic_sandbox.main.AgenticSandbox.create") as create,
+        ):
+            self.assertEqual(main(["-b", "podman", "create", "--graphics"]), 0)
+        create.assert_called_once_with(
+            wait=True, backend_args=[], quiet=False, gui=False, kvm=False, graphics=True
+        )
+        self.assertFalse(
+            build_parser().parse_args(["-b", "podman", "create"]).graphics
+        )
+        for command in ("run", "exec"):
+            with self.subTest(command=command):
+                with patch("sys.stderr", io.StringIO()), self.assertRaises(SystemExit):
+                    build_parser().parse_args(["-b", "podman", command, "--graphics"])
+
+    def test_graphics_rejects_mkosi_before_lifecycle_operations(self) -> None:
+        with (
+            patch("agentic_sandbox.main.Paths.detect"),
+            patch("agentic_sandbox.main.AgenticSandbox.ensure_directories") as setup,
+            patch("agentic_sandbox.mkosi_backend.MkosiBackend.create") as create,
+            patch("sys.stderr", io.StringIO()) as stderr,
+        ):
+            self.assertEqual(main(["-b", "mkosi", "create", "--graphics"]), 1)
+        setup.assert_not_called()
+        create.assert_not_called()
+        self.assertIn(
+            "--graphics is only supported by the podman backend", stderr.getvalue()
+        )
 
     def test_parser_forwards_quiet_flags_after_separator(self) -> None:
         for command, attribute in (("create", "backend_args"), ("run", "exec_args")):
@@ -320,7 +352,13 @@ class MainTests(unittest.TestCase):
                     self.backend = backend
 
                 def create(
-                    self, wait=False, backend_args=(), quiet=False, gui=False, kvm=False
+                    self,
+                    wait=False,
+                    backend_args=(),
+                    quiet=False,
+                    gui=False,
+                    kvm=False,
+                    graphics=False,
                 ):
                     selected.append((self.backend, wait, list(backend_args)))
 

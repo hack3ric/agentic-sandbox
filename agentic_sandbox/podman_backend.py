@@ -29,6 +29,11 @@ GUI_WAYLAND_DISPLAY = "wayland-0"
 GUI_X_DISPLAY = ":0"
 KVM_DEVICE = Path("/dev/kvm")
 KVM_LABEL = "io.agentic-sandbox.kvm"
+GRAPHICS_LABEL = "io.agentic-sandbox.graphics"
+GRAPHICS_IMAGE_VERSION = 1
+DRI_DEVICE_DIR = Path("/dev/dri")
+DRM_SYSFS_DIR = Path("/sys/class/drm")
+NVIDIA_VENDOR_ID = 0x10DE
 
 
 class PodmanBackend(Backend):
@@ -67,20 +72,25 @@ class PodmanBackend(Backend):
         backend_args: Sequence[str] = (),
         gui: bool = False,
         kvm: bool = False,
+        graphics: bool = False,
     ) -> None:
         known = self.is_known(identity)
         if gui and known:
             self.require_gui(identity)
         if kvm and known:
             self.require_kvm(identity)
+        if graphics and known:
+            self.require_graphics(identity)
         command = (
-            self.create_cmd(identity, cwd, backend_args, gui=gui, kvm=kvm)
+            self.create_cmd(
+                identity, cwd, backend_args, gui=gui, kvm=kvm, graphics=graphics
+            )
             if not known
             else None
         )
         self.ensure_image_dir()
         self.ensure_workspace()
-        self.ensure_image_built(gui=gui)
+        self.ensure_image_built(gui=gui, graphics=graphics)
         if command is not None:
             self.run(command)
         if not self.is_running(identity):
@@ -165,6 +175,7 @@ class PodmanBackend(Backend):
         backend_args: Sequence[str] = (),
         gui: bool = False,
         kvm: bool = False,
+        graphics: bool = False,
     ) -> list[str]:
         forwarded = list(backend_args)
         if forwarded and forwarded[0] == "--":
@@ -172,14 +183,16 @@ class PodmanBackend(Backend):
         options = self.gui_args() if gui else []
         if kvm:
             options.extend(self.kvm_args())
+        if graphics:
+            options.extend(self.graphics_args())
+        if kvm or graphics:
+            options.extend(["--group-add", "keep-groups"])
         entrypoint = (
             [
                 "xwayland-satellite",
                 GUI_X_DISPLAY,
                 "-nolisten",
                 "tcp",
-                "-glamor",
-                "none",
             ]
             if gui
             else [
@@ -188,6 +201,8 @@ class PodmanBackend(Backend):
                 'trap "exit 0" TERM INT; while :; do sleep 3600 & wait $! || :; done',
             ]
         )
+        if gui and not graphics:
+            entrypoint.append("-shm")
         return [
             "podman",
             "create",
@@ -275,8 +290,6 @@ class PodmanBackend(Backend):
         return [
             "--device",
             f"{KVM_DEVICE}:{KVM_DEVICE}:rw",
-            "--group-add",
-            "keep-groups",
             "--label",
             f"{KVM_LABEL}=enabled",
         ]
@@ -301,6 +314,88 @@ class PodmanBackend(Backend):
             raise self.error_type(
                 f"{identity.machine_name} was created without --kvm; "
                 "stop and recreate it with create --kvm "
+                "(stopping removes the container's writable layer)"
+            )
+
+    def graphics_devices(self) -> list[Path]:
+        devices = []
+        for device in sorted(DRI_DEVICE_DIR.glob("renderD*")):
+            if self.uses_nvidia_driver(device):
+                continue
+            try:
+                is_device = device.is_char_device()
+            except OSError as exc:
+                raise self.error_type(f"cannot inspect {device}: {exc}") from exc
+            if not is_device:
+                raise self.error_type(
+                    f"--graphics requires a host character device at {device}"
+                )
+            if not os.access(device, os.R_OK | os.W_OK):
+                raise self.error_type(
+                    f"--graphics requires read/write access to {device}; "
+                    "check the device permissions and your host render/video "
+                    "group membership"
+                )
+            devices.append(device)
+        if not devices:
+            raise self.error_type(
+                "--graphics requires a Mesa-compatible GPU render device in "
+                f"{DRI_DEVICE_DIR}; "
+                "check that a supported graphics driver is loaded on the host "
+                "(Nouveau is supported; NVIDIA's own drivers, including nvidia-open, "
+                "are not supported)"
+            )
+        return devices
+
+    def uses_nvidia_driver(self, device: Path) -> bool:
+        sysfs_device = DRM_SYSFS_DIR / device.name / "device"
+        try:
+            try:
+                vendor = int((sysfs_device / "vendor").read_text(encoding="utf-8"), 16)
+            except FileNotFoundError:
+                vendor = None
+            try:
+                driver = (sysfs_device / "driver").resolve(strict=True).name
+            except FileNotFoundError:
+                driver = None
+        except (OSError, ValueError) as exc:
+            raise self.error_type(
+                f"cannot identify GPU render device {device} through {sysfs_device}: {exc}"
+            ) from exc
+        if vendor is None and driver is None:
+            raise self.error_type(
+                f"cannot identify GPU render device {device}; "
+                f"check that vendor or driver information is available in {sysfs_device}"
+            )
+        return driver == "nvidia" or (vendor == NVIDIA_VENDOR_ID and driver != "nouveau")
+
+    def graphics_args(self) -> list[str]:
+        args = []
+        for device in self.graphics_devices():
+            args.extend(["--device", f"{device}:{device}:rw"])
+        args.extend(["--label", f"{GRAPHICS_LABEL}=enabled"])
+        return args
+
+    def graphics_enabled(self, identity) -> bool:
+        result = self.run(
+            [
+                "podman",
+                "container",
+                "inspect",
+                "--format",
+                '{{ index .Config.Labels "' + GRAPHICS_LABEL + '" }}',
+                identity.machine_name,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        return (result.stdout or "").strip() == "enabled"
+
+    def require_graphics(self, identity) -> None:
+        if not self.graphics_enabled(identity):
+            raise self.error_type(
+                f"{identity.machine_name} was created without --graphics; "
+                "stop and recreate it with create --graphics "
                 "(stopping removes the container's writable layer)"
             )
 
@@ -393,9 +488,9 @@ class PodmanBackend(Backend):
         ):
             target.write_text(content, encoding="utf-8")
 
-    def ensure_image_built(self, gui: bool = False) -> None:
+    def ensure_image_built(self, gui: bool = False, graphics: bool = False) -> None:
         if self.build_marker.exists():
-            if not gui:
+            if not gui and not graphics:
                 return
             try:
                 marker = json.loads(self.build_marker.read_text(encoding="utf-8"))
@@ -403,7 +498,11 @@ class PodmanBackend(Backend):
                 marker = {}
             if (
                 isinstance(marker, dict)
-                and marker.get("gui_version") == GUI_IMAGE_VERSION
+                and (not gui or marker.get("gui_version") == GUI_IMAGE_VERSION)
+                and (
+                    not graphics
+                    or marker.get("graphics_version") == GRAPHICS_IMAGE_VERSION
+                )
             ):
                 return
         self.run(self.build_cmd())
@@ -455,6 +554,7 @@ class PodmanBackend(Backend):
         payload = {
             "image_dir": str(self.image_dir),
             "gui_version": GUI_IMAGE_VERSION,
+            "graphics_version": GRAPHICS_IMAGE_VERSION,
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
         self.build_marker.write_text(
