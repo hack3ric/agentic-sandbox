@@ -42,7 +42,7 @@ PODMAN_PACKAGES = [
     package
     for package in DEFAULT_PACKAGES
     if package not in {"base", "linux", "linux-headers", "rustfmt"}
-]
+] + ["xwayland-satellite", "xorg-xdpyinfo"]
 
 HOST_BIND_MOUNTS = (
     Path(".local/share/opencode"),

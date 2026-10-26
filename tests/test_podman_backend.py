@@ -1,11 +1,21 @@
 import json
+import os
+import socket
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from agentic_sandbox.main import AgenticSandbox, AgenticSandboxError, Paths
-from agentic_sandbox.podman_backend import ARCH_LINUX_IMAGE, PodmanBackend
+from agentic_sandbox.podman_backend import (
+    ARCH_LINUX_IMAGE,
+    GUI_IMAGE_VERSION,
+    GUI_LABEL,
+    GUI_RUNTIME_DIR,
+    GUI_WAYLAND_DISPLAY,
+    PodmanBackend,
+)
 
 
 class PodmanBackendTests(unittest.TestCase):
@@ -78,7 +88,13 @@ class PodmanBackendTests(unittest.TestCase):
             backend.create(identity, cwd)
             self.assertEqual(commands[-1], ["wait", identity.machine_name])
 
-            self.assertEqual(commands[0][:2], ["podman", "build"])
+            build_index = next(
+                i for i, cmd in enumerate(commands) if cmd[:2] == ["podman", "build"]
+            )
+            create_index = next(
+                i for i, cmd in enumerate(commands) if cmd[:2] == ["podman", "create"]
+            )
+            self.assertLess(build_index, create_index)
             self.assertTrue(
                 any(command[:2] == ["podman", "create"] for command in commands)
             )
@@ -137,7 +153,7 @@ class PodmanBackendTests(unittest.TestCase):
 
             app.exec_in_sandbox([])
 
-            command = commands[0]
+            command = next(cmd for cmd in commands if cmd[:2] == ["podman", "exec"])
             self.assertEqual(command[:3], ["podman", "exec", "--workdir"])
             self.assertIn("-it", command)
             self.assertIn(app.identity_for().machine_name, command)
@@ -171,7 +187,7 @@ class PodmanBackendTests(unittest.TestCase):
 
             app.exec_in_sandbox(["--", "pwd"])
 
-            command = commands[0]
+            command = next(cmd for cmd in commands if cmd[:2] == ["podman", "exec"])
             self.assertNotIn("-it", command)
             self.assertTrue(command[-1].endswith(f"cd '{cwd}' && exec pwd"))
 
@@ -347,3 +363,229 @@ class PodmanBackendTests(unittest.TestCase):
             "'someone ALL=(ALL) NOPASSWD: ALL'",
             containerfile,
         )
+
+    def test_gui_create_mounts_only_wayland_and_runs_private_xwayland(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = self.make_paths(root)
+            runtime_dir = root / "runtime dir"
+            runtime_dir.mkdir()
+            display = runtime_dir / "wayland-7"
+            backend = PodmanBackend(paths)
+            identity = AgenticSandbox(paths, root, backend=backend).identity_for()
+            with (
+                socket.socket(socket.AF_UNIX) as listener,
+                patch.dict(
+                    os.environ,
+                    {
+                        "XDG_RUNTIME_DIR": str(runtime_dir),
+                        "WAYLAND_DISPLAY": display.name,
+                    },
+                    clear=True,
+                ),
+            ):
+                listener.bind(str(display))
+                command = backend.create_cmd(
+                    identity, root, ["--", "--cpus", "2"], gui=True
+                )
+
+            mounts = [
+                command[i + 1] for i, arg in enumerate(command) if arg == "--volume"
+            ]
+            self.assertEqual(
+                mounts,
+                [
+                    f"{root}:{root}",
+                    f"{display}:{GUI_RUNTIME_DIR / GUI_WAYLAND_DISPLAY}:ro",
+                ],
+            )
+            env = [command[i + 1] for i, arg in enumerate(command) if arg == "--env"]
+            self.assertIn("DISPLAY=:0", env)
+            self.assertIn(f"WAYLAND_DISPLAY={GUI_WAYLAND_DISPLAY}", env)
+            self.assertIn(f"XDG_RUNTIME_DIR={GUI_RUNTIME_DIR}", env)
+            self.assertIn(f"{GUI_RUNTIME_DIR}:rw,mode=0700", command)
+            self.assertIn("--init", command)
+            self.assertIn(f"{GUI_LABEL}=wayland", command)
+            image_index = command.index(backend.image_tag)
+            self.assertEqual(command[image_index - 2 : image_index], ["--cpus", "2"])
+            self.assertEqual(
+                command[image_index + 1 :],
+                ["xwayland-satellite", ":0", "-nolisten", "tcp", "-glamor", "none"],
+            )
+
+    def test_gui_accepts_absolute_socket_without_runtime_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            backend = PodmanBackend(self.make_paths(root))
+            display = root / "wayland-absolute"
+            with (
+                socket.socket(socket.AF_UNIX) as listener,
+                patch.dict(os.environ, {"WAYLAND_DISPLAY": str(display)}, clear=True),
+            ):
+                listener.bind(str(display))
+                self.assertIn(
+                    f"{display}:{GUI_RUNTIME_DIR / GUI_WAYLAND_DISPLAY}:ro",
+                    backend.gui_args(),
+                )
+
+    def test_gui_uses_default_wayland_display(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            backend = PodmanBackend(self.make_paths(root))
+            display = root / "wayland-0"
+            with (
+                socket.socket(socket.AF_UNIX) as listener,
+                patch.dict(os.environ, {"XDG_RUNTIME_DIR": str(root)}, clear=True),
+            ):
+                listener.bind(str(display))
+                self.assertIn(
+                    f"{display}:{GUI_RUNTIME_DIR / GUI_WAYLAND_DISPLAY}:ro",
+                    backend.gui_args(),
+                )
+
+    def test_gui_rejects_invalid_display_before_build_or_create(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = self.make_paths(root)
+            regular_file = root / "regular-file"
+            regular_file.touch()
+            for env in (
+                {},
+                {"XDG_RUNTIME_DIR": "relative"},
+                {"WAYLAND_DISPLAY": str(root / "missing")},
+                {"WAYLAND_DISPLAY": str(regular_file)},
+                {"WAYLAND_DISPLAY": str(root)},
+            ):
+                with self.subTest(env=env), patch.dict(os.environ, env, clear=True):
+                    commands = []
+                    backend = self.make_backend(paths, commands)
+                    identity = AgenticSandbox(
+                        paths, root, backend=backend
+                    ).identity_for()
+                    with self.assertRaises(AgenticSandboxError):
+                        backend.create(identity, root, gui=True)
+                    self.assertFalse(
+                        any(
+                            cmd[:2] in (["podman", "build"], ["podman", "create"])
+                            for cmd in commands
+                        )
+                    )
+
+    def test_gui_request_rejects_existing_non_gui_container(self) -> None:
+        for running in (False, True):
+            with self.subTest(running=running), tempfile.TemporaryDirectory() as tmpdir:
+                root = Path(tmpdir)
+                paths = self.make_paths(root)
+                commands = []
+                backend = self.make_backend(paths, commands)
+                backend.is_known = lambda identity: True
+                backend.is_running = lambda identity, running=running: running
+                app = AgenticSandbox(paths, root, backend=backend)
+                with self.assertRaisesRegex(
+                    AgenticSandboxError, "was created without --gui"
+                ):
+                    app.create(gui=True)
+                self.assertFalse(
+                    any(
+                        cmd[:2]
+                        in (["podman", "build"], ["podman", "create"], ["podman", "rm"])
+                        for cmd in commands
+                    )
+                )
+                self.assertFalse(app.identity_for().state_file.exists())
+
+    def test_gui_request_reuses_existing_gui_container(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = self.make_paths(root)
+            commands = []
+            backend = self.make_backend(paths, commands)
+            backend.is_known = lambda identity: True
+            backend.is_running = lambda identity: True
+            backend.gui_enabled = lambda identity: True
+            app = AgenticSandbox(paths, root, backend=backend)
+            with patch.object(backend, "wait_for_container") as wait:
+                app.create(gui=True, wait=True, quiet=True)
+            wait.assert_called_once_with(app.identity_for())
+            self.assertEqual(commands, [])
+            self.assertTrue(app.identity_for().state_file.exists())
+
+    def test_gui_upgrades_old_image_once_and_preserves_headless_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            paths = self.make_paths(Path(tmpdir))
+            commands = []
+            backend = self.make_backend(paths, commands)
+            paths.podman_build_marker.write_text("{}", encoding="utf-8")
+            backend.ensure_image_built()
+            self.assertEqual(commands, [])
+            backend.ensure_image_built(gui=True)
+            backend.ensure_image_built(gui=True)
+            self.assertEqual(commands, [backend.build_cmd()])
+            marker = json.loads(paths.podman_build_marker.read_text(encoding="utf-8"))
+            self.assertEqual(marker["gui_version"], GUI_IMAGE_VERSION)
+
+    def test_gui_wait_retries_until_xwayland_accepts_connections(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = self.make_paths(root)
+            commands = []
+            probes = 0
+            sleeps = []
+
+            def runner(command, **kwargs):
+                nonlocal probes
+                commands.append(command)
+                if command[:2] == ["podman", "exec"]:
+                    probes += 1
+                    return subprocess.CompletedProcess(
+                        command, 1 if probes == 1 else 0, "", ""
+                    )
+                output = "wayland" if GUI_LABEL in command[-2] else "true"
+                return subprocess.CompletedProcess(command, 0, output, "")
+
+            backend = PodmanBackend(paths, runner=runner, sleeper=sleeps.append)
+            identity = AgenticSandbox(paths, root, backend=backend).identity_for()
+            backend.wait_for_container(identity)
+            self.assertEqual(probes, 2)
+            self.assertEqual(sleeps, [1.0])
+            self.assertEqual(
+                commands[-1],
+                ["podman", "exec", identity.machine_name, "timeout", "2", "xdpyinfo"],
+            )
+
+    def test_gui_wait_reports_timeout_and_helper_exit(self) -> None:
+        for running in (False, True):
+            with self.subTest(running=running), tempfile.TemporaryDirectory() as tmpdir:
+                root = Path(tmpdir)
+                paths = self.make_paths(root)
+
+                def runner(command, **kwargs):
+                    return subprocess.CompletedProcess(
+                        command, 1, "", "display not ready"
+                    )
+
+                backend = PodmanBackend(
+                    paths, runner=runner, error_type=AgenticSandboxError
+                )
+                backend.gui_enabled = lambda identity: True
+                backend.is_running = lambda identity, running=running: running
+                identity = AgenticSandbox(paths, root, backend=backend).identity_for()
+                message = "timed out.*GUI display" if running else "not active"
+                with self.assertRaisesRegex(AgenticSandboxError, message):
+                    backend.wait_for_container(identity, timeout_seconds=0)
+
+    def test_exec_waits_for_gui_from_container_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = self.make_paths(root)
+            commands = []
+            backend = self.make_backend(paths, commands)
+            backend.is_running = lambda identity: True
+            backend.gui_enabled = lambda identity: True
+            backend.should_allocate_tty = lambda: False
+            backend.wait_for_container = lambda identity: commands.append(["wait"])
+            identity = AgenticSandbox(paths, root, backend=backend).identity_for()
+            backend.ssh(identity, root, ["--", "example-app"])
+            self.assertEqual(commands[0], ["wait"])
+            self.assertEqual(commands[1][:2], ["podman", "exec"])
+            self.assertTrue(commands[1][-1].endswith("exec example-app"))

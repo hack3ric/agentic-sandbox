@@ -115,6 +115,49 @@ class MainTests(unittest.TestCase):
         self.assertTrue(args.wait)
         self.assertEqual(args.backend_args, ["--", "--cpus", "2"])
 
+    def test_gui_is_a_create_option_only(self) -> None:
+        args = build_parser().parse_args(
+            ["--backend", "podman", "create", "--gui", "--wait"]
+        )
+        self.assertTrue(args.gui)
+        self.assertTrue(args.wait)
+        for command in ("run", "exec"):
+            with self.subTest(command=command):
+                with patch("sys.stderr", io.StringIO()), self.assertRaises(SystemExit):
+                    build_parser().parse_args(["-b", "podman", command, "--gui"])
+                args = build_parser().parse_args(
+                    ["-b", "podman", command, "--", "example", "--gui"]
+                )
+                self.assertEqual(args.exec_args, ["--", "example", "--gui"])
+
+    def test_gui_rejects_mkosi_before_calling_backend(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stderr = io.StringIO()
+            with (
+                patch(
+                    "agentic_sandbox.main.Paths.detect",
+                    return_value=self.make_paths(Path(tmpdir)),
+                ),
+                patch("agentic_sandbox.mkosi_backend.MkosiBackend.create") as create,
+                patch("sys.stderr", stderr),
+            ):
+                result = main(["-b", "mkosi", "create", "--gui"])
+            self.assertEqual(result, 1)
+            create.assert_not_called()
+            self.assertIn(
+                "--gui is only supported by the podman backend", stderr.getvalue()
+            )
+
+    def test_main_passes_gui_to_create(self) -> None:
+        with (
+            patch("agentic_sandbox.main.Paths.detect"),
+            patch("agentic_sandbox.main.make_backend"),
+            patch("agentic_sandbox.main.AgenticSandbox.create") as create,
+        ):
+            result = main(["-b", "podman", "create", "--gui", "--wait", "-q"])
+        self.assertEqual(result, 0)
+        create.assert_called_once_with(wait=True, backend_args=[], quiet=True, gui=True)
+
     def test_parser_forwards_quiet_flags_after_separator(self) -> None:
         for command, attribute in (("create", "backend_args"), ("run", "exec_args")):
             with self.subTest(command=command):
@@ -243,7 +286,7 @@ class MainTests(unittest.TestCase):
                     self.cwd_arg = cwd_arg
                     self.backend = backend
 
-                def create(self, wait=False, backend_args=(), quiet=False):
+                def create(self, wait=False, backend_args=(), quiet=False, gui=False):
                     selected.append((self.backend, wait, list(backend_args)))
 
             with (

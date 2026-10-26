@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shlex
 import subprocess
 import sys
@@ -21,6 +22,11 @@ from .spinner import DEFAULT_SPINNER_FRAME_INTERVAL_SECONDS, Spinner
 DEFAULT_BOOT_TIMEOUT_SECONDS = 30.0
 DEFAULT_BOOT_POLL_INTERVAL_SECONDS = 1.0
 ARCH_LINUX_IMAGE = "docker.io/archlinux:latest"
+GUI_LABEL = "io.agentic-sandbox.gui"
+GUI_IMAGE_VERSION = 1
+GUI_RUNTIME_DIR = Path("/run/agentic-sandbox-gui")
+GUI_WAYLAND_DISPLAY = "wayland-0"
+GUI_X_DISPLAY = ":0"
 
 
 class PodmanBackend(Backend):
@@ -57,12 +63,19 @@ class PodmanBackend(Backend):
         cwd: Path,
         wait: bool = True,
         backend_args: Sequence[str] = (),
+        gui: bool = False,
     ) -> None:
+        known = self.is_known(identity)
+        if gui and known:
+            self.require_gui(identity)
+        command = (
+            self.create_cmd(identity, cwd, backend_args, gui=gui) if not known else None
+        )
         self.ensure_image_dir()
         self.ensure_workspace()
-        self.ensure_image_built()
-        if not self.is_known(identity):
-            self.run(self.create_cmd(identity, cwd, backend_args))
+        self.ensure_image_built(gui=gui)
+        if command is not None:
+            self.run(command)
         if not self.is_running(identity):
             self.run(["podman", "start", identity.machine_name])
         if wait:
@@ -74,6 +87,8 @@ class PodmanBackend(Backend):
     def ssh(self, identity, cwd: Path, extra_args: Sequence[str]) -> int:
         if not self.is_running(identity):
             raise self.error_type(f"{identity.unit_name} is not active")
+        if self.gui_enabled(identity):
+            self.wait_for_container(identity)
         return self.run(self.exec_cmd(identity, cwd, extra_args)).returncode
 
     def stop(
@@ -137,11 +152,32 @@ class PodmanBackend(Backend):
         return result.returncode == 0
 
     def create_cmd(
-        self, identity, cwd: Path, backend_args: Sequence[str] = ()
+        self,
+        identity,
+        cwd: Path,
+        backend_args: Sequence[str] = (),
+        gui: bool = False,
     ) -> list[str]:
         forwarded = list(backend_args)
         if forwarded and forwarded[0] == "--":
             forwarded = forwarded[1:]
+        options = self.gui_args() if gui else []
+        entrypoint = (
+            [
+                "xwayland-satellite",
+                GUI_X_DISPLAY,
+                "-nolisten",
+                "tcp",
+                "-glamor",
+                "none",
+            ]
+            if gui
+            else [
+                "/bin/sh",
+                "-lc",
+                'trap "exit 0" TERM INT; while :; do sleep 3600 & wait $! || :; done',
+            ]
+        )
         return [
             "podman",
             "create",
@@ -152,12 +188,64 @@ class PodmanBackend(Backend):
             "--workdir",
             str(cwd),
             *self.mount_args(cwd),
+            *options,
             *forwarded,
             self.image_tag,
-            "/bin/sh",
-            "-lc",
-            'trap "exit 0" TERM INT; while :; do sleep 3600 & wait $! || :; done',
+            *entrypoint,
         ]
+
+    def gui_args(self) -> list[str]:
+        display = Path(os.environ.get("WAYLAND_DISPLAY") or "wayland-0")
+        if not display.is_absolute():
+            runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+            if not runtime_dir or not Path(runtime_dir).is_absolute():
+                raise self.error_type(
+                    "--gui requires a Wayland session: set XDG_RUNTIME_DIR "
+                    "to an absolute path or WAYLAND_DISPLAY to an absolute socket path"
+                )
+            display = Path(runtime_dir) / display
+        if not display.is_socket():
+            raise self.error_type(
+                f"Wayland socket does not exist or is not a socket: {display}"
+            )
+        return [
+            "--init",
+            "--label",
+            f"{GUI_LABEL}=wayland",
+            "--tmpfs",
+            f"{GUI_RUNTIME_DIR}:rw,mode=0700",
+            "--volume",
+            f"{display}:{GUI_RUNTIME_DIR / GUI_WAYLAND_DISPLAY}:ro",
+            "--env",
+            f"XDG_RUNTIME_DIR={GUI_RUNTIME_DIR}",
+            "--env",
+            f"WAYLAND_DISPLAY={GUI_WAYLAND_DISPLAY}",
+            "--env",
+            f"DISPLAY={GUI_X_DISPLAY}",
+        ]
+
+    def gui_enabled(self, identity) -> bool:
+        result = self.run(
+            [
+                "podman",
+                "container",
+                "inspect",
+                "--format",
+                '{{ index .Config.Labels "' + GUI_LABEL + '" }}',
+                identity.machine_name,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        return (result.stdout or "").strip() == "wayland"
+
+    def require_gui(self, identity) -> None:
+        if not self.gui_enabled(identity):
+            raise self.error_type(
+                f"{identity.machine_name} was created without --gui; "
+                "stop and recreate it with create --gui "
+                "(stopping removes the container's writable layer)"
+            )
 
     def exec_cmd(self, identity, cwd: Path, extra_args: Sequence[str]) -> list[str]:
         forwarded = list(extra_args)
@@ -248,9 +336,19 @@ class PodmanBackend(Backend):
         ):
             target.write_text(content, encoding="utf-8")
 
-    def ensure_image_built(self) -> None:
+    def ensure_image_built(self, gui: bool = False) -> None:
         if self.build_marker.exists():
-            return
+            if not gui:
+                return
+            try:
+                marker = json.loads(self.build_marker.read_text(encoding="utf-8"))
+            except (ValueError, OSError):
+                marker = {}
+            if (
+                isinstance(marker, dict)
+                and marker.get("gui_version") == GUI_IMAGE_VERSION
+            ):
+                return
         self.run(self.build_cmd())
         self.write_build_marker()
 
@@ -260,27 +358,34 @@ class PodmanBackend(Backend):
         timeout_seconds: float = DEFAULT_BOOT_TIMEOUT_SECONDS,
         poll_interval_seconds: float = DEFAULT_BOOT_POLL_INTERVAL_SECONDS,
     ) -> None:
+        gui = self.gui_enabled(identity)
+        probe = ["timeout", "2", "xdpyinfo"] if gui else ["true"]
         deadline = time.monotonic() + timeout_seconds
         spinner = self.make_spinner(f"Waiting for {identity.machine_name} to start")
-        while True:
-            if not self.is_running(identity):
-                spinner.finish()
-                raise self.error_type(f"{identity.unit_name} is not active")
-            result = self.run(
-                ["podman", "exec", identity.machine_name, "true"],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode == 0:
-                spinner.finish()
-                return
-            if time.monotonic() >= deadline:
-                spinner.finish()
-                raise self.error_type(
-                    f"timed out waiting for {identity.machine_name} to become reachable"
+        try:
+            while True:
+                if not self.is_running(identity):
+                    raise self.error_type(
+                        f"{identity.unit_name} is not active; "
+                        f"check podman logs {identity.machine_name}"
+                    )
+                result = self.run(
+                    ["podman", "exec", identity.machine_name, *probe],
+                    check=False,
+                    capture_output=True,
+                    text=True,
                 )
-            self.sleeper(poll_interval_seconds)
+                if result.returncode == 0:
+                    return
+                if time.monotonic() >= deadline:
+                    target = "GUI display" if gui else "container"
+                    raise self.error_type(
+                        f"timed out waiting for {identity.machine_name} {target}; "
+                        f"check podman logs {identity.machine_name}"
+                    )
+                self.sleeper(poll_interval_seconds)
+        finally:
+            spinner.finish()
 
     def remove_container(self, identity, force: bool) -> None:
         command = ["podman", "rm"]
@@ -292,6 +397,7 @@ class PodmanBackend(Backend):
     def write_build_marker(self) -> None:
         payload = {
             "image_dir": str(self.image_dir),
+            "gui_version": GUI_IMAGE_VERSION,
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
         self.build_marker.write_text(

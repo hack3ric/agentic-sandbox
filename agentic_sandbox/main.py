@@ -167,11 +167,16 @@ class AgenticSandbox:
         wait: bool = True,
         backend_args: Sequence[str] = (),
         quiet: bool = False,
+        gui: bool = False,
     ) -> None:
+        if gui and self.backend_name != "podman":
+            raise AgenticSandboxError("--gui is only supported by the podman backend")
         identity = self.identity_for()
         self.ensure_directories()
         self.prune_stale_state(identity)
         if self.backend.is_running(identity):
+            if gui:
+                self.backend.require_gui(identity)
             if wait:
                 self.backend.wait_until_ready(identity)
             self.write_state(identity)
@@ -181,7 +186,11 @@ class AgenticSandbox:
                 )
             return
         self.backend.create(
-            identity, identity.cwd, wait=wait, backend_args=backend_args
+            identity,
+            identity.cwd,
+            wait=wait,
+            backend_args=backend_args,
+            **({"gui": True} if gui else {}),
         )
         self.write_state(identity)
         if not quiet:
@@ -385,6 +394,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="wait for the guest to become reachable before returning (default)",
     )
     create_parser.add_argument(
+        "--gui",
+        action="store_true",
+        help="enable Wayland and X11 applications through XWayland (podman only)",
+    )
+    create_parser.add_argument(
         "-q",
         "--quiet",
         action="store_true",
@@ -446,7 +460,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "create":
             app.create(
-                wait=args.wait, backend_args=args.backend_args, quiet=args.quiet
+                wait=args.wait,
+                backend_args=args.backend_args,
+                quiet=args.quiet,
+                gui=args.gui,
             )
             return 0
         if args.command == "run":
