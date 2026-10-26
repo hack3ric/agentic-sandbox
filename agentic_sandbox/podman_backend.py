@@ -408,13 +408,15 @@ class PodmanBackend(Backend):
             forwarded = forwarded[1:]
         if detached and (not forwarded or not forwarded[0]):
             raise self.error_type("--detached requires a command")
+        allocate_tty = not detached and (not forwarded or self.should_allocate_tty())
         command = ["podman", "exec", "--workdir", str(cwd)]
-        term = os.environ.get("TERM")
-        if term is not None:
-            command.extend(["--env", f"TERM={term}"])
+        if allocate_tty:
+            term = os.environ.get("TERM")
+            if term is not None:
+                command.extend(["--env", f"TERM={term}"])
         if detached:
             command.append("--detach")
-        elif not forwarded or self.should_allocate_tty():
+        elif allocate_tty:
             command.append("-it")
         command.append(identity.machine_name)
         if not forwarded:

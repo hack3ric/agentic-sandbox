@@ -177,14 +177,49 @@ class PodmanBackendTests(unittest.TestCase):
             app.prune_stale_state = lambda identity: None
             backend.is_running = lambda identity: True
 
-            app.exec_in_sandbox([])
+            with patch.dict(os.environ, {
+                "TERM": "xterm-256color",
+                "COLORTERM": "truecolor",
+                "TERM_PROGRAM": "terminal with spaces",
+                "TERM_PROGRAM_VERSION": "1.0",
+                "LANG": "en_US.UTF-8",
+                "LC_CTYPE": "en_US.UTF-8",
+                "LINES": "40",
+                "COLUMNS": "120",
+                "TERMINFO": "/host/terminfo",
+                "TERMINFO_DIRS": "/host/terminfo:/host/extra",
+            }, clear=True):
+                app.exec_in_sandbox([])
 
             command = next(cmd for cmd in commands if cmd[:2] == ["podman", "exec"])
             self.assertEqual(command[:3], ["podman", "exec", "--workdir"])
             self.assertIn("-it", command)
+            self.assertEqual(
+                [command[i + 1] for i, arg in enumerate(command) if arg == "--env"],
+                ["TERM=xterm-256color"],
+            )
             self.assertIn(app.identity_for().machine_name, command)
             self.assertTrue(command[-1].endswith("exec ${SHELL:-/bin/bash} -l"))
             self.assertNotIn("sudo", " ".join(command))
+
+    def test_exec_preserves_empty_term_and_omits_unset_term(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = self.make_paths(root)
+            backend = PodmanBackend(paths)
+            backend.should_allocate_tty = lambda: True
+            identity = AgenticSandbox(paths, root, backend=backend).identity_for()
+
+            for environment, expected in (({}, []), ({"TERM": ""}, ["TERM="])):
+                with self.subTest(environment=environment):
+                    with patch.dict(os.environ, environment, clear=True):
+                        command = backend.exec_cmd(identity, root, ["--", "env"])
+
+                    self.assertIn("-it", command)
+                    self.assertEqual(
+                        [command[i + 1] for i, arg in enumerate(command) if arg == "--env"],
+                        expected,
+                    )
 
     def test_ssh_runs_command_without_tty_when_not_needed(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -211,10 +246,12 @@ class PodmanBackendTests(unittest.TestCase):
             backend.is_running = lambda identity: True
             backend.should_allocate_tty = lambda: False
 
-            app.exec_in_sandbox(["--", "pwd"])
+            with patch.dict(os.environ, {"TERM": "xterm-256color"}):
+                app.exec_in_sandbox(["--", "pwd"])
 
             command = next(cmd for cmd in commands if cmd[:2] == ["podman", "exec"])
             self.assertNotIn("-it", command)
+            self.assertNotIn("--env", command)
             self.assertTrue(command[-1].endswith(f"cd '{cwd}' && exec pwd"))
 
     def test_detached_exec_preserves_arguments_and_never_allocates_tty(self) -> None:
@@ -240,8 +277,7 @@ class PodmanBackendTests(unittest.TestCase):
                 container_index = command.index(app.identity_for().machine_name)
                 self.assertEqual(
                     command[:container_index],
-                    ["podman", "exec", "--workdir", str(cwd),
-                     "--env", "TERM=xterm-256color", "--detach"],
+                    ["podman", "exec", "--workdir", str(cwd), "--detach"],
                 )
                 self.assertEqual(command[container_index + 1:-1], ["/bin/sh", "-lc"])
                 script = shlex.split(command[-1])
