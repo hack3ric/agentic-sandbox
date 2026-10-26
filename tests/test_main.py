@@ -156,7 +156,40 @@ class MainTests(unittest.TestCase):
         ):
             result = main(["-b", "podman", "create", "--gui", "--wait", "-q"])
         self.assertEqual(result, 0)
-        create.assert_called_once_with(wait=True, backend_args=[], quiet=True, gui=True)
+        create.assert_called_once_with(
+            wait=True, backend_args=[], quiet=True, gui=True, kvm=False
+        )
+
+    def test_kvm_is_a_create_option_only(self) -> None:
+        with (
+            patch("agentic_sandbox.main.Paths.detect"),
+            patch("agentic_sandbox.main.make_backend"),
+            patch("agentic_sandbox.main.AgenticSandbox.create") as create,
+        ):
+            self.assertEqual(main(["-b", "podman", "create", "--kvm"]), 0)
+        create.assert_called_once_with(
+            wait=True, backend_args=[], quiet=False, gui=False, kvm=True
+        )
+        self.assertFalse(build_parser().parse_args(["-b", "podman", "create"]).kvm)
+        with patch("sys.stderr", io.StringIO()), self.assertRaises(SystemExit):
+            build_parser().parse_args(["-b", "podman", "run", "--kvm"])
+
+    def test_kvm_rejects_mkosi_before_calling_backend(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            stderr = io.StringIO()
+            with (
+                patch(
+                    "agentic_sandbox.main.Paths.detect",
+                    return_value=self.make_paths(Path(tmpdir)),
+                ),
+                patch("agentic_sandbox.mkosi_backend.MkosiBackend.create") as create,
+                patch("sys.stderr", stderr),
+            ):
+                self.assertEqual(main(["-b", "mkosi", "create", "--kvm"]), 1)
+            create.assert_not_called()
+            self.assertIn(
+                "--kvm is only supported by the podman backend", stderr.getvalue()
+            )
 
     def test_parser_forwards_quiet_flags_after_separator(self) -> None:
         for command, attribute in (("create", "backend_args"), ("run", "exec_args")):
@@ -286,7 +319,9 @@ class MainTests(unittest.TestCase):
                     self.cwd_arg = cwd_arg
                     self.backend = backend
 
-                def create(self, wait=False, backend_args=(), quiet=False, gui=False):
+                def create(
+                    self, wait=False, backend_args=(), quiet=False, gui=False, kvm=False
+                ):
                     selected.append((self.backend, wait, list(backend_args)))
 
             with (

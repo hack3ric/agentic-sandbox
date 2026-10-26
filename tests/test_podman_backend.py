@@ -14,6 +14,8 @@ from agentic_sandbox.podman_backend import (
     GUI_LABEL,
     GUI_RUNTIME_DIR,
     GUI_WAYLAND_DISPLAY,
+    KVM_DEVICE,
+    KVM_LABEL,
     PodmanBackend,
 )
 
@@ -589,3 +591,113 @@ class PodmanBackendTests(unittest.TestCase):
             self.assertEqual(commands[0], ["wait"])
             self.assertEqual(commands[1][:2], ["podman", "exec"])
             self.assertTrue(commands[1][-1].endswith("exec example-app"))
+
+    def test_kvm_create_exposes_device_and_preserves_groups(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = self.make_paths(root)
+            commands = []
+            backend = self.make_backend(paths, commands)
+            app = AgenticSandbox(paths, root, backend=backend)
+            with (
+                patch.object(Path, "is_char_device", return_value=True),
+                patch(
+                    "agentic_sandbox.podman_backend.os.access", return_value=True
+                ) as access,
+                patch.object(backend, "ensure_workspace"),
+                patch.object(backend, "wait_for_container"),
+            ):
+                app.create(kvm=True, quiet=True)
+
+            access.assert_called_once_with(KVM_DEVICE, os.R_OK | os.W_OK)
+            command = next(cmd for cmd in commands if cmd[:2] == ["podman", "create"])
+            self.assertEqual(
+                command[command.index("--device") + 1], "/dev/kvm:/dev/kvm:rw"
+            )
+            self.assertEqual(command[command.index("--group-add") + 1], "keep-groups")
+            self.assertIn(f"{KVM_LABEL}=enabled", command)
+            self.assertLess(command.index("--device"), command.index(backend.image_tag))
+            self.assertNotIn("--privileged", command)
+
+    def test_kvm_rejects_unavailable_device_before_building(self) -> None:
+        for is_device, accessible, message in (
+            (False, True, "host character device"),
+            (True, False, "read/write access"),
+        ):
+            with self.subTest(message=message), tempfile.TemporaryDirectory() as tmpdir:
+                root = Path(tmpdir)
+                paths = self.make_paths(root)
+                commands = []
+                backend = self.make_backend(paths, commands)
+                identity = AgenticSandbox(paths, root, backend=backend).identity_for()
+                with (
+                    patch.object(Path, "is_char_device", return_value=is_device),
+                    patch(
+                        "agentic_sandbox.podman_backend.os.access",
+                        return_value=accessible,
+                    ),
+                    self.assertRaisesRegex(AgenticSandboxError, message),
+                ):
+                    backend.create(identity, root, kvm=True)
+                self.assertEqual(
+                    commands,
+                    [["podman", "container", "exists", identity.machine_name]],
+                )
+                self.assertFalse(paths.podman_build_marker.exists())
+
+    def test_kvm_request_rejects_existing_container_without_kvm(self) -> None:
+        for running in (False, True):
+            with self.subTest(running=running), tempfile.TemporaryDirectory() as tmpdir:
+                root = Path(tmpdir)
+                paths = self.make_paths(root)
+                commands = []
+                backend = self.make_backend(paths, commands)
+                backend.is_known = lambda identity: True
+                backend.is_running = lambda identity, running=running: running
+                app = AgenticSandbox(paths, root, backend=backend)
+                with self.assertRaisesRegex(
+                    AgenticSandboxError, "was created without --kvm"
+                ):
+                    app.create(kvm=True, quiet=True)
+                self.assertTrue(commands)
+                self.assertTrue(
+                    all(cmd[:3] == ["podman", "container", "inspect"] for cmd in commands)
+                )
+                self.assertFalse(app.identity_for().state_file.exists())
+
+    def test_kvm_container_is_reused_by_create_and_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = self.make_paths(root)
+            paths.podman_build_marker.write_text("{}", encoding="utf-8")
+            commands = []
+            running = False
+
+            def runner(command, **kwargs):
+                nonlocal running
+                commands.append(command)
+                output = ""
+                if command[:2] == ["podman", "start"]:
+                    running = True
+                elif command[:3] == ["podman", "container", "inspect"]:
+                    if command[-2] == "{{.State.Running}}":
+                        output = str(running).lower()
+                    elif KVM_LABEL in command[-2]:
+                        output = "enabled"
+                return subprocess.CompletedProcess(command, 0, output, "")
+
+            backend = PodmanBackend(paths, runner=runner, spinner_enabled=False)
+            backend.should_allocate_tty = lambda: False
+            app = AgenticSandbox(paths, root, backend=backend)
+            with patch.object(backend, "ensure_workspace"):
+                app.create(kvm=True, quiet=True)
+                app.create(kvm=True, quiet=True)
+                self.assertEqual(app.run_sandbox(["--", "true"], quiet=True), 0)
+
+            self.assertEqual(
+                commands.count(["podman", "start", app.identity_for().machine_name]), 1
+            )
+            self.assertFalse(
+                any(cmd[:2] in (["podman", "create"], ["podman", "build"]) for cmd in commands)
+            )
+            self.assertEqual(commands[-1][:2], ["podman", "exec"])

@@ -27,6 +27,8 @@ GUI_IMAGE_VERSION = 1
 GUI_RUNTIME_DIR = Path("/run/agentic-sandbox-gui")
 GUI_WAYLAND_DISPLAY = "wayland-0"
 GUI_X_DISPLAY = ":0"
+KVM_DEVICE = Path("/dev/kvm")
+KVM_LABEL = "io.agentic-sandbox.kvm"
 
 
 class PodmanBackend(Backend):
@@ -64,12 +66,17 @@ class PodmanBackend(Backend):
         wait: bool = True,
         backend_args: Sequence[str] = (),
         gui: bool = False,
+        kvm: bool = False,
     ) -> None:
         known = self.is_known(identity)
         if gui and known:
             self.require_gui(identity)
+        if kvm and known:
+            self.require_kvm(identity)
         command = (
-            self.create_cmd(identity, cwd, backend_args, gui=gui) if not known else None
+            self.create_cmd(identity, cwd, backend_args, gui=gui, kvm=kvm)
+            if not known
+            else None
         )
         self.ensure_image_dir()
         self.ensure_workspace()
@@ -157,11 +164,14 @@ class PodmanBackend(Backend):
         cwd: Path,
         backend_args: Sequence[str] = (),
         gui: bool = False,
+        kvm: bool = False,
     ) -> list[str]:
         forwarded = list(backend_args)
         if forwarded and forwarded[0] == "--":
             forwarded = forwarded[1:]
         options = self.gui_args() if gui else []
+        if kvm:
+            options.extend(self.kvm_args())
         entrypoint = (
             [
                 "xwayland-satellite",
@@ -244,6 +254,53 @@ class PodmanBackend(Backend):
             raise self.error_type(
                 f"{identity.machine_name} was created without --gui; "
                 "stop and recreate it with create --gui "
+                "(stopping removes the container's writable layer)"
+            )
+
+    def kvm_args(self) -> list[str]:
+        try:
+            is_device = KVM_DEVICE.is_char_device()
+        except OSError as exc:
+            raise self.error_type(f"cannot inspect {KVM_DEVICE}: {exc}") from exc
+        if not is_device:
+            raise self.error_type(
+                f"--kvm requires the host character device {KVM_DEVICE}; "
+                "check that KVM is enabled on the host"
+            )
+        if not os.access(KVM_DEVICE, os.R_OK | os.W_OK):
+            raise self.error_type(
+                f"--kvm requires read/write access to {KVM_DEVICE}; "
+                "check the device permissions and your host kvm group membership"
+            )
+        return [
+            "--device",
+            f"{KVM_DEVICE}:{KVM_DEVICE}:rw",
+            "--group-add",
+            "keep-groups",
+            "--label",
+            f"{KVM_LABEL}=enabled",
+        ]
+
+    def kvm_enabled(self, identity) -> bool:
+        result = self.run(
+            [
+                "podman",
+                "container",
+                "inspect",
+                "--format",
+                '{{ index .Config.Labels "' + KVM_LABEL + '" }}',
+                identity.machine_name,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        return (result.stdout or "").strip() == "enabled"
+
+    def require_kvm(self, identity) -> None:
+        if not self.kvm_enabled(identity):
+            raise self.error_type(
+                f"{identity.machine_name} was created without --kvm; "
+                "stop and recreate it with create --kvm "
                 "(stopping removes the container's writable layer)"
             )
 
